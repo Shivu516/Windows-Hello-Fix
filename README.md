@@ -50,3 +50,6 @@ Want to revert to standard Windows behavior?
 ## ⚠️ Disclaimer
 
 This tool directly modifies hardware states using built-in Windows utilities. While perfectly safe and easily reversible, ensure you are selecting the correct RGB camera during setup. Do not select your IR sensor, or Windows Hello will stop working entirely!
+
+### Keywords for Search Engines
+Windows Hello face recognition slow fix, prioritize IR camera over RGB Windows 11, Windows Hello looking for you loop, disable RGB camera for face unlock, pnputil camera toggle script, Event ID 4800 4801 task scheduler fix, infrared camera biometric enrollment trick, Windows Hello hardware conflict solution.
