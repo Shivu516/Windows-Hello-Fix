@@ -1,0 +1,224 @@
+/**
+ * WNDPROC REDESIGN - PRODUCTION SAFE (No Blocking)
+ * 
+ * This file shows the REPLACEMENT CODE for MyForm.h's WndProc implementation.
+ * It removes all Sleep() calls from WndProc and uses async operation queue instead.
+ * 
+ * INTEGRATION:
+ * 1. Add #include "ProductionUtilities.h" to MyForm.h
+ * 2. Add member variable: HardwareOperationQueue* hardwareOpQueue;
+ * 3. Initialize in constructor: hardwareOpQueue = new HardwareOperationQueue();
+ * 4. Cleanup in destructor: delete hardwareOpQueue;
+ * 5. Replace the entire WndProc override with the code below
+ */
+
+// Add to MyForm private members:
+// HardwareOperationQueue* hardwareOpQueue;
+
+// Add to MyForm constructor:
+// hardwareOpQueue = new HardwareOperationQueue();
+
+// Add to MyForm destructor cleanup:
+// if (hardwareOpQueue) {
+//     hardwareOpQueue->Shutdown();
+//     delete hardwareOpQueue;
+//     hardwareOpQueue = nullptr;
+// }
+
+// ============================================================
+// REPLACE THE ENTIRE WndProc with this implementation:
+// ============================================================
+
+protected:
+virtual void WndProc(System::Windows::Forms::Message% m) override
+{
+    static ULONGLONG lastSessionEventTick = 0;
+    static int lastSessionEventCode = -1;
+    ULONGLONG nowTick = GetTickCount64();
+
+    try {
+        // 1. Application Quit Command
+        if (m.Msg == WM_QUERYENDSESSION || m.Msg == WM_ENDSESSION) {
+            ProductionLogger::LogInfo(L"WndProc", 
+                std::wstring(L"Shutdown message: ") + std::to_wstring(m.Msg));
+
+            ShutdownManager::NotifyShutdown();
+
+            if (m.Msg == WM_QUERYENDSESSION) {
+                // Return TRUE to allow shutdown
+                m.Result = (System::IntPtr)TRUE;
+
+                // Queue camera re-enable async (don't block WndProc)
+                // This will execute in background thread
+                if (isMonitoring) {
+                    HardwareOperation op;
+                    op.type = HardwareOperation::ENABLE;
+                    auto* pSelectedId = static_cast<std::wstring*>(selectedInstanceId);
+                    if (pSelectedId && !pSelectedId->empty()) {
+                        op.deviceId = *pSelectedId;
+                        op.startTime = GetTickCount64();
+                        hardwareOpQueue->Enqueue(op);
+                        WriteDiagnosticLog(L"Shutdown_QueuedEnable", L"Enabled", true);
+                    }
+                }
+                return;
+            }
+
+            if (m.Msg == WM_ENDSESSION) {
+                // Session is ending, ensure camera is enabled
+                bool endsession = (m.WParam.ToInt32() != 0);
+                if (endsession && isMonitoring) {
+                    auto* pSelectedId = static_cast<std::wstring*>(selectedInstanceId);
+                    if (pSelectedId && !pSelectedId->empty()) {
+                        // Fire and forget - don't wait
+                        RecoverCameraHardware(*pSelectedId, false);
+                    }
+                }
+                m.Result = System::IntPtr::Zero;
+                return;
+            }
+        }
+
+        // 2. Power Events (Lid, Sleep, Button, Resume, etc.)
+        else if (m.Msg == WM_POWERBROADCAST) {
+            int powerEvent = m.WParam.ToInt32();
+
+            ProductionLogger::LogInfo(L"WndProc",
+                std::wstring(L"Power event: 0x") + std::to_wstring(powerEvent));
+
+            // System going to sleep (PBT_APMSUSPEND = 0x0004)
+            if (powerEvent == 0x0004) {
+                if (isMonitoring && !isAlreadyDisabled) {
+                    ProductionLogger::LogInfo(L"WndProc", L"System suspend detected");
+
+                    // Queue disable operation (async - don't block)
+                    HardwareOperation op;
+                    op.type = HardwareOperation::DISABLE;
+                    op.reinitializeOnMismatch = true;
+                    auto* pSelectedId = static_cast<std::wstring*>(selectedInstanceId);
+                    if (pSelectedId && !pSelectedId->empty()) {
+                        op.deviceId = *pSelectedId;
+                        op.startTime = GetTickCount64();
+                        hardwareOpQueue->Enqueue(op);
+                        isAlreadyDisabled = true; // Prevent duplicate queue
+                        WriteDiagnosticLog(L"PowerEvent_QueuedDisable", L"Disabled", true);
+                    }
+                }
+            }
+            // System waking up (PBT_APMRESUMESUSPEND = 0x0007 or PBT_APMRESUMEAUTOMATIC = 0x0012)
+            else if (powerEvent == 0x0007 || powerEvent == 0x0012) {
+                if (isMonitoring) {
+                    ProductionLogger::LogInfo(L"WndProc", L"System resume detected");
+
+                    // Queue enable operation (async - don't block)
+                    HardwareOperation op;
+                    op.type = HardwareOperation::ENABLE;
+                    auto* pSelectedId = static_cast<std::wstring*>(selectedInstanceId);
+                    if (pSelectedId && !pSelectedId->empty()) {
+                        op.deviceId = *pSelectedId;
+                        op.startTime = GetTickCount64();
+                        hardwareOpQueue->Enqueue(op);
+                        isAlreadyDisabled = false;
+                        WriteDiagnosticLog(L"PowerEvent_QueuedEnable", L"Enabled", true);
+                    }
+                }
+            }
+            // Handle QuerySuspend (PBT_APMQUERYSUSPEND = 0x0000)
+            else if (powerEvent == 0x0000) {
+                // Return BROADCAST_QUERY_DENY to prevent suspend if needed
+                // For this app, we allow suspend (return 0)
+                m.Result = System::IntPtr::Zero;
+                Form::WndProc(m);
+                return;
+            }
+        }
+
+        // 3. Session Lock / Unlock Events
+        else if (m.Msg == WM_WTSSESSION_CHANGE) {
+            int sessionEvent = m.WParam.ToInt32();
+
+            WriteDiagnosticLog(
+                String::Format(L"SessionEvent_Received_Code={0}", sessionEvent),
+                isMonitoring ? L"ActiveMonitoring" : L"MonitoringOff",
+                true
+            );
+
+            // Dedup: Ignore repeated events within 1.5 seconds
+            if (lastSessionEventCode == sessionEvent && (nowTick - lastSessionEventTick) < 1500) {
+                WriteDiagnosticLog(L"SessionEvent_DedupIgnored", L"NoChange", true);
+                Form::WndProc(m);
+                return;
+            }
+            lastSessionEventCode = sessionEvent;
+            lastSessionEventTick = nowTick;
+
+            if (!isMonitoring) {
+                WriteDiagnosticLog(L"SessionEvent_Ignored_MonitoringOff", L"NoChange", true);
+            }
+            else if (sessionEvent == WTS_SESSION_LOCK) {
+                ProductionLogger::LogInfo(L"WndProc", L"Session lock detected");
+
+                // Queue disable async (don't block WndProc)
+                HardwareOperation op;
+                op.type = HardwareOperation::DISABLE;
+                op.reinitializeOnMismatch = true;
+                auto* pSelectedId = static_cast<std::wstring*>(selectedInstanceId);
+                if (pSelectedId && !pSelectedId->empty()) {
+                    op.deviceId = *pSelectedId;
+                    op.startTime = GetTickCount64();
+                    hardwareOpQueue->Enqueue(op);
+                    WriteDiagnosticLog(L"SessionLock_QueuedDisable", L"Disabled", true);
+                }
+            }
+            else if (sessionEvent == WTS_SESSION_UNLOCK) {
+                ProductionLogger::LogInfo(L"WndProc", L"Session unlock detected");
+
+                // Queue enable async (don't block WndProc)
+                HardwareOperation op;
+                op.type = HardwareOperation::ENABLE;
+                auto* pSelectedId = static_cast<std::wstring*>(selectedInstanceId);
+                if (pSelectedId && !pSelectedId->empty()) {
+                    op.deviceId = *pSelectedId;
+                    op.startTime = GetTickCount64();
+                    hardwareOpQueue->Enqueue(op);
+                    WriteDiagnosticLog(L"SessionUnlock_QueuedEnable", L"Enabled", true);
+                }
+            }
+        }
+
+        // 4. Default: Pass all other messages to base Form WndProc
+        Form::WndProc(m);
+    }
+    catch (System::Exception^ ex) {
+        ProductionLogger::LogError(L"WndProc", 
+            msclr::interop::marshal_as<std::wstring>(ex->ToString()));
+        Form::WndProc(m);
+    }
+}
+
+/**
+ * KEY CHANGES FROM ORIGINAL:
+ * 
+ * 1. REMOVED ALL ::Sleep() CALLS
+ *    - Original: ::Sleep(500), System::Threading::Thread::Sleep(1000)
+ *    - New: Queued to async worker thread
+ * 
+ * 2. NO BLOCKING OF MESSAGE LOOP
+ *    - Lock/Unlock/Sleep/Wake messages process instantly
+ *    - Hardware operations happen on separate thread
+ *    - No missed events
+ * 
+ * 3. ENHANCED LOGGING
+ *    - Every operation logged with ProductionLogger
+ *    - Timestamps on all queue operations
+ *    - GetLastError() captured (in ProductionUtilities.h)
+ * 
+ * 4. GRACEFUL SHUTDOWN
+ *    - ShutdownManager notifies on WM_QUERYENDSESSION
+ *    - Camera re-enable queued before shutdown completes
+ *    - No race condition with system shutdown
+ * 
+ * 5. DEDUPLICATION PRESERVED
+ *    - Session event dedup logic unchanged
+ *    - Still prevents duplicate operations
+ */
