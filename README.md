@@ -149,5 +149,5 @@ This tool directly modifies hardware states using built-in Windows utilities. Wh
 
 ## 🌐 Keywords for Search Engines
 
-Windows Hello face recognition slow fix, prioritise IR camera over RGB Windows 11, Windows Hello looking for you loop, disable RGB camera for face unlock, pnputil camera toggle script, infrared camera biometric enrollment trick, Windows Hello hardware conflict solution.
+Windows Hello face recognition slow fix, prioritise IR camera over RGB Windows 11, Windows Hello looking for you loop, disable RGB camera for face unlock, infrared camera biometric enrollment trick, Windows Hello hardware conflict solution.
 
