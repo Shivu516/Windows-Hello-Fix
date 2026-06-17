@@ -114,13 +114,38 @@ This program automates that exact act of digital sabotage. It safely turns off y
 ---
 
 
+Here is the updated **Installation and Setup Guide** section for your `README.md`. It clearly documents both paths so users can pick their favorite method, while explicitly warning them about how WinGet handles shortcuts.
+
+---
+
 ## 🛠️ Installation and Setup Guide
 
+You can install this utility either using the traditional graphical setup or directly through the Windows Package Manager (WinGet).
 
-Installation is very simple. Simply run the setup file and go through the installation wizard to get everything configured automatically.
+### Option 1: Fast CLI Installation (Recommended)
+Open your preferred terminal (PowerShell or Command Prompt) and execute the following deployment shortcut:
 
+```powershell
+winget install hellofix
 
-Once the app starts, select your RGB camera from the drop-down menu, it should have the same name as in Device Manager.
+```
+
+> ⚠️ **Important WinGet Note:** The package manager installs the application silently in headless mode. It will **NOT** create a desktop shortcut. To launch the application for the first time, open your Windows Start Menu and search for **"Windows Hello Fix"**.
+
+### Option 2: Graphical Setup
+
+Simply download and execute the latest compiled setup installer (`Windows_Hello_Fix_Setup.exe`) from the Releases tab and proceed through the automatic installation wizard.
+
+---
+
+### ⚙️ Initial Hardware Configuration
+
+Because the core service executes seamlessly in the background, you must manually bind your camera hardware interface exactly once upon initial deployment:
+
+1. Launch the application from your Windows Start Menu.
+2. Select your targeted **RGB Camera** from the interface drop-down menu (the string identifier matches its exact naming convention inside the native Windows Device Manager).
+3. Toggle the monitoring status to **Active**, apply changes, and you are completely good to go! The background daemon will handle all subsequent automation sequences silently.
+
 
 
 ## 🧹 Uninstallation
@@ -149,5 +174,6 @@ This tool directly modifies hardware states using built-in Windows utilities. Wh
 
 ## 🌐 Keywords for Search Engines
 
-Windows Hello face recognition slow fix, prioritise IR camera over RGB Windows 11, Windows Hello looking for you loop, disable RGB camera for face unlock, infrared camera biometric enrollment trick, Windows Hello hardware conflict solution.
+Windows Hello face recognition slow fix, prioritise IR camera over RGB Windows 11, Windows Hello looking for you loop, disable RGB camera for face unlock, pnputil camera toggle script, infrared camera biometric enrollment trick, Windows Hello hardware conflict solution.
 
+---
