@@ -1,0 +1,37 @@
+# Visual Studio user/workspace files
+.vs/
+
+# Visual Studio build output
+x64/
+x86/
+ARM64/
+
+# Debug/Release build directories
+Debug/
+Release/
+
+# Build intermediates
+[Bb]uild/
+[Bb]in/
+[Oo]bj/
+
+# Visual Studio user-specific project files
+*.user
+*.suo
+*.vcxproj.user
+
+# IntelliSense / compiler-generated files
+*.ipch
+*.pdb
+*.ilk
+*.obj
+*.tlog
+
+# CMake generated files (if we use CMake later)
+CMakeFiles/
+CMakeCache.txt
+cmake-build-*/
+
+# Windows generated files
+Thumbs.db
+Desktop.ini
