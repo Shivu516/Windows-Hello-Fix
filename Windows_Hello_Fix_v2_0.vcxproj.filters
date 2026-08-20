@@ -13,6 +13,15 @@
       <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
       <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav;mfcribbon-ms</Extensions>
     </Filter>
+    <Filter Include="src">
+      <UniqueIdentifier>{A1B2C3D4-E5F6-4A5B-9C8D-1E2F3A4B5C6D}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\utilities">
+      <UniqueIdentifier>{B2C3D4E5-F6A7-4B5C-8D9E-0F1A2B3C4D5E}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\system">
+      <UniqueIdentifier>{C3D4E5F6-A7B8-4C5D-9E0F-1A2B3C4D5E6F}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="MyForm.h">
@@ -26,6 +35,15 @@
     </ClInclude>
     <ClInclude Include="ProductionUtilities.h">
       <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="src\utilities\Logging.h">
+      <Filter>src\utilities</Filter>
+    </ClInclude>
+    <ClInclude Include="src\utilities\StringHelpers.h">
+      <Filter>src\utilities</Filter>
+    </ClInclude>
+    <ClInclude Include="src\system\PrivilegeInfo.h">
+      <Filter>src\system</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
@@ -41,6 +59,12 @@
   <ItemGroup>
     <ClCompile Include="main.cpp">
       <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="src\utilities\Logging.cpp">
+      <Filter>src\utilities</Filter>
+    </ClCompile>
+    <ClCompile Include="src\system\PrivilegeInfo.cpp">
+      <Filter>src\system</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>

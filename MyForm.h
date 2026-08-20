@@ -8,6 +8,8 @@
 #include <fstream> // For saving/loading config state
 #include <msclr\marshal_cppstd.h>
 #include "resource.h"
+#include "src/utilities/StringHelpers.h"
+#include "src/system/PrivilegeInfo.h"
 
 #pragma comment(lib, "wtsapi32.lib")
 #pragma comment(lib, "setupapi.lib")
@@ -43,8 +45,6 @@ bool SetCameraHardwareStateVerified(std::wstring targetId, bool enable, bool rei
 bool RecoverCameraHardware(std::wstring targetId, bool cycleDevice);
 bool GetCameraHardwareDisabledState(std::wstring targetId, bool& isDisabled);
 bool VerifyCameraHardwareState(std::wstring targetId, bool shouldBeDisabled);
-bool IsCurrentProcessElevatedNative();
-DWORD GetCurrentProcessIntegrityRid();
 
 
 namespace Windows_Hello_Fix_v2_0 {
@@ -222,59 +222,6 @@ bool RecoverCameraHardware(std::wstring targetId, bool cycleDevice);
 void RestoreAllCameraHardware(bool cycleDevices);
 
 // ====== NATIVE FUNCTION IMPLEMENTATIONS ======
-
-std::wstring TrimTrailingChars(const std::wstring& str) {
-    std::wstring sanitized = str;
-    // Remove trailing carriage returns, newlines, or trailing spaces
-    while (!sanitized.empty() && (sanitized.back() == L'\r' || sanitized.back() == L'\n' || sanitized.back() == L' ')) {
-        sanitized.pop_back();
-    }
-    return sanitized;
-}
-
-bool IsCurrentProcessElevatedNative() {
-    HANDLE token = NULL;
-    if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token)) {
-        return false;
-    }
-
-    TOKEN_ELEVATION elevation;
-    DWORD returnLength = 0;
-    BOOL ok = GetTokenInformation(token, TokenElevation, &elevation, sizeof(elevation), &returnLength);
-    CloseHandle(token);
-
-    return ok && elevation.TokenIsElevated != 0;
-}
-
-DWORD GetCurrentProcessIntegrityRid() {
-    HANDLE token = NULL;
-    if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token)) {
-        return 0;
-    }
-
-    DWORD tokenInfoLength = 0;
-    GetTokenInformation(token, TokenIntegrityLevel, NULL, 0, &tokenInfoLength);
-    if (GetLastError() != ERROR_INSUFFICIENT_BUFFER || tokenInfoLength == 0) {
-        CloseHandle(token);
-        return 0;
-    }
-
-    PTOKEN_MANDATORY_LABEL tokenLabel = reinterpret_cast<PTOKEN_MANDATORY_LABEL>(LocalAlloc(LPTR, tokenInfoLength));
-    if (tokenLabel == NULL) {
-        CloseHandle(token);
-        return 0;
-    }
-
-    DWORD integrityRid = 0;
-    if (GetTokenInformation(token, TokenIntegrityLevel, tokenLabel, tokenInfoLength, &tokenInfoLength)) {
-        DWORD subAuthorityCount = *GetSidSubAuthorityCount(tokenLabel->Label.Sid);
-        integrityRid = *GetSidSubAuthority(tokenLabel->Label.Sid, subAuthorityCount - 1);
-    }
-
-    LocalFree(tokenLabel);
-    CloseHandle(token);
-    return integrityRid;
-}
 
 std::vector<CameraDeviceInfo> ScanSystemCameras() {
     std::vector<CameraDeviceInfo> list;

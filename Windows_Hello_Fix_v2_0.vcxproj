@@ -140,6 +140,9 @@
     <ClInclude Include="ProductionUtilities.h" />
     <ClInclude Include="resource.h" />
     <ClInclude Include="resource1.h" />
+    <ClInclude Include="src\utilities\Logging.h" />
+    <ClInclude Include="src\utilities\StringHelpers.h" />
+    <ClInclude Include="src\system\PrivilegeInfo.h" />
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="Windows_Hello_Fix_v2_0_resources.rc" />
@@ -149,6 +152,8 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="main.cpp" />
+    <ClCompile Include="src\utilities\Logging.cpp" />
+    <ClCompile Include="src\system\PrivilegeInfo.cpp" />
   </ItemGroup>
   <ItemGroup>
     <Xml Include="WindowsHelloFix_TaskSchedule.xml" />
