@@ -1,4 +1,5 @@
 #include "MyForm.h"
+#include "src/application/CommandLine.h"
 
 using namespace System;
 using namespace System::Windows::Forms;
@@ -12,17 +13,7 @@ int main(array<String^>^ args)
 
     MyForm form;
 
-    // Check for the background argument passed by Task Scheduler
-    bool runHidden = false;
-    for (int i = 0; i < args->Length; i++) {
-        if (args[i] == L"--background" || args[i] == L"/background" ||
-            args[i] == L"--disable-camera" || args[i] == L"/disable-camera" ||
-            args[i] == L"--enable-camera" || args[i] == L"/enable-camera" ||
-            args[i] == L"/restore-camera" || args[i] == L"/repair-camera") {
-            runHidden = true;
-            break;
-        }
-    }
+    bool runHidden = CommandLine::ShouldHideWindow(args);
 
     if (runHidden) {
         // Make the window completely invisible while keeping WndProc alive

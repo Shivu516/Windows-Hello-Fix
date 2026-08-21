@@ -24,7 +24,7 @@
     <TargetFrameworkVersion>v4.7.2</TargetFrameworkVersion>
     <Keyword>ManagedCProj</Keyword>
     <RootNamespace>WindowsHelloFixv20</RootNamespace>
-    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+    <WindowsTargetPlatformVersion>10.0.26100.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
@@ -134,15 +134,31 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="MyForm.h">
+    <ClInclude Include="MyForm.h" />
+    <ClInclude Include="src\ui\MyForm.h">
       <FileType>CppForm</FileType>
     </ClInclude>
-    <ClInclude Include="ProductionUtilities.h" />
+    <ClInclude Include="src\ui\UiConstants.h" />
     <ClInclude Include="resource.h" />
     <ClInclude Include="resource1.h" />
     <ClInclude Include="src\utilities\Logging.h" />
     <ClInclude Include="src\utilities\StringHelpers.h" />
     <ClInclude Include="src\system\PrivilegeInfo.h" />
+    <ClInclude Include="src\camera\CameraDevice.h" />
+    <ClInclude Include="src\camera\CameraHardware.h" />
+    <ClInclude Include="src\camera\CameraRecovery.h" />
+    <ClInclude Include="src\camera\DeviceError.h" />
+    <ClInclude Include="src\config\ConfigPaths.h" />
+    <ClInclude Include="src\config\ConfigStore.h" />
+    <ClInclude Include="src\application\CommandLine.h" />
+    <ClInclude Include="src\application\IUiSink.h" />
+    <ClInclude Include="src\application\ApplicationController.h" />
+    <ClInclude Include="src\events\SystemEvent.h" />
+    <ClInclude Include="src\events\WinEventDecoder.h" />
+    <ClInclude Include="src\events\EventCooldown.h" />
+    <ClInclude Include="src\events\NotificationRegistrar.h" />
+    <ClInclude Include="src\system\SingleInstance.h" />
+    <ClInclude Include="src\system\ProcessUtils.h" />
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="Windows_Hello_Fix_v2_0_resources.rc" />
@@ -152,25 +168,24 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="main.cpp" />
+    <ClCompile Include="src\ui\MyForm.cpp" />
     <ClCompile Include="src\utilities\Logging.cpp" />
     <ClCompile Include="src\system\PrivilegeInfo.cpp" />
+    <ClCompile Include="src\camera\CameraDevice.cpp" />
+    <ClCompile Include="src\camera\CameraHardware.cpp" />
+    <ClCompile Include="src\camera\CameraRecovery.cpp" />
+    <ClCompile Include="src\config\ConfigPaths.cpp" />
+    <ClCompile Include="src\config\ConfigStore.cpp" />
+    <ClCompile Include="src\application\CommandLine.cpp" />
+    <ClCompile Include="src\application\ApplicationController.cpp" />
+    <ClCompile Include="src\events\WinEventDecoder.cpp" />
+    <ClCompile Include="src\events\EventCooldown.cpp" />
+    <ClCompile Include="src\events\NotificationRegistrar.cpp" />
+    <ClCompile Include="src\system\SingleInstance.cpp" />
+    <ClCompile Include="src\system\ProcessUtils.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <Xml Include="WindowsHelloFix_TaskSchedule.xml" />
-  </ItemGroup>
-  <ItemGroup>
-    <Text Include="CONCRETE_CODE_CHANGES.txt" />
-    <Text Include="FINAL_SUMMARY.txt" />
     <Text Include="WndProc_Redesign.txt" />
-  </ItemGroup>
-  <ItemGroup>
-    <None Include="COMPLETE_REFERENCE.md" />
-    <None Include="PRODUCTION_DEPLOYMENT_GUIDE.md" />
-    <None Include="QUICK_CHECKLIST.md" />
-    <None Include="README_SOLUTION.md" />
-    <None Include="SOLUTION_SUMMARY.md" />
-    <None Include="START_HERE.md" />
-    <None Include="WindowsHelloFix_Installer.nsi" />
   </ItemGroup>
   <ItemGroup>
     <Manifest Include="app.manifest" />

@@ -22,6 +22,21 @@
     <Filter Include="src\system">
       <UniqueIdentifier>{C3D4E5F6-A7B8-4C5D-9E0F-1A2B3C4D5E6F}</UniqueIdentifier>
     </Filter>
+    <Filter Include="src\camera">
+      <UniqueIdentifier>{D4E5F6A7-B8C9-4D5E-9F01-2B3C4D5E6F7A}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\config">
+      <UniqueIdentifier>{E5F6A7B8-C9D0-4E5F-8A01-2B3C4D5E6F7B}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\application">
+      <UniqueIdentifier>{F6A7B8C9-D0E1-4F5A-9B01-2C3D4E5F6A7B}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\events">
+      <UniqueIdentifier>{A7B8C9D0-E1F2-4A3B-8C01-3D4E5F6A7B8C}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\ui">
+      <UniqueIdentifier>{B8C9D0E1-F2A3-4B5C-9C01-3D4E5F6A7B8D}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="MyForm.h">
@@ -33,9 +48,6 @@
     <ClInclude Include="resource1.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="ProductionUtilities.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="src\utilities\Logging.h">
       <Filter>src\utilities</Filter>
     </ClInclude>
@@ -44,6 +56,57 @@
     </ClInclude>
     <ClInclude Include="src\system\PrivilegeInfo.h">
       <Filter>src\system</Filter>
+    </ClInclude>
+    <ClInclude Include="src\camera\CameraDevice.h">
+      <Filter>src\camera</Filter>
+    </ClInclude>
+    <ClInclude Include="src\camera\CameraHardware.h">
+      <Filter>src\camera</Filter>
+    </ClInclude>
+    <ClInclude Include="src\camera\CameraRecovery.h">
+      <Filter>src\camera</Filter>
+    </ClInclude>
+    <ClInclude Include="src\camera\DeviceError.h">
+      <Filter>src\camera</Filter>
+    </ClInclude>
+    <ClInclude Include="src\config\ConfigPaths.h">
+      <Filter>src\config</Filter>
+    </ClInclude>
+    <ClInclude Include="src\config\ConfigStore.h">
+      <Filter>src\config</Filter>
+    </ClInclude>
+    <ClInclude Include="src\application\CommandLine.h">
+      <Filter>src\application</Filter>
+    </ClInclude>
+    <ClInclude Include="src\application\IUiSink.h">
+      <Filter>src\application</Filter>
+    </ClInclude>
+    <ClInclude Include="src\application\ApplicationController.h">
+      <Filter>src\application</Filter>
+    </ClInclude>
+    <ClInclude Include="src\events\SystemEvent.h">
+      <Filter>src\events</Filter>
+    </ClInclude>
+    <ClInclude Include="src\events\WinEventDecoder.h">
+      <Filter>src\events</Filter>
+    </ClInclude>
+    <ClInclude Include="src\events\EventCooldown.h">
+      <Filter>src\events</Filter>
+    </ClInclude>
+    <ClInclude Include="src\events\NotificationRegistrar.h">
+      <Filter>src\events</Filter>
+    </ClInclude>
+    <ClInclude Include="src\system\SingleInstance.h">
+      <Filter>src\system</Filter>
+    </ClInclude>
+    <ClInclude Include="src\system\ProcessUtils.h">
+      <Filter>src\system</Filter>
+    </ClInclude>
+    <ClInclude Include="src\ui\MyForm.h">
+      <Filter>src\ui</Filter>
+    </ClInclude>
+    <ClInclude Include="src\ui\UiConstants.h">
+      <Filter>src\ui</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
@@ -66,23 +129,48 @@
     <ClCompile Include="src\system\PrivilegeInfo.cpp">
       <Filter>src\system</Filter>
     </ClCompile>
-  </ItemGroup>
-  <ItemGroup>
-    <Xml Include="WindowsHelloFix_TaskSchedule.xml" />
+    <ClCompile Include="src\camera\CameraDevice.cpp">
+      <Filter>src\camera</Filter>
+    </ClCompile>
+    <ClCompile Include="src\camera\CameraHardware.cpp">
+      <Filter>src\camera</Filter>
+    </ClCompile>
+    <ClCompile Include="src\camera\CameraRecovery.cpp">
+      <Filter>src\camera</Filter>
+    </ClCompile>
+    <ClCompile Include="src\config\ConfigPaths.cpp">
+      <Filter>src\config</Filter>
+    </ClCompile>
+    <ClCompile Include="src\config\ConfigStore.cpp">
+      <Filter>src\config</Filter>
+    </ClCompile>
+    <ClCompile Include="src\application\CommandLine.cpp">
+      <Filter>src\application</Filter>
+    </ClCompile>
+    <ClCompile Include="src\application\ApplicationController.cpp">
+      <Filter>src\application</Filter>
+    </ClCompile>
+    <ClCompile Include="src\events\WinEventDecoder.cpp">
+      <Filter>src\events</Filter>
+    </ClCompile>
+    <ClCompile Include="src\events\EventCooldown.cpp">
+      <Filter>src\events</Filter>
+    </ClCompile>
+    <ClCompile Include="src\events\NotificationRegistrar.cpp">
+      <Filter>src\events</Filter>
+    </ClCompile>
+    <ClCompile Include="src\system\SingleInstance.cpp">
+      <Filter>src\system</Filter>
+    </ClCompile>
+    <ClCompile Include="src\system\ProcessUtils.cpp">
+      <Filter>src\system</Filter>
+    </ClCompile>
+    <ClCompile Include="src\ui\MyForm.cpp">
+      <Filter>src\ui</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <Text Include="WndProc_Redesign.txt" />
-    <Text Include="CONCRETE_CODE_CHANGES.txt" />
-    <Text Include="FINAL_SUMMARY.txt" />
-  </ItemGroup>
-  <ItemGroup>
-    <None Include="WindowsHelloFix_Installer.nsi" />
-    <None Include="PRODUCTION_DEPLOYMENT_GUIDE.md" />
-    <None Include="QUICK_CHECKLIST.md" />
-    <None Include="SOLUTION_SUMMARY.md" />
-    <None Include="COMPLETE_REFERENCE.md" />
-    <None Include="README_SOLUTION.md" />
-    <None Include="START_HERE.md" />
   </ItemGroup>
   <ItemGroup>
     <Manifest Include="app.manifest" />
