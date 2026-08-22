@@ -35,3 +35,23 @@ cmake-build-*/
 # Windows generated files
 Thumbs.db
 Desktop.ini
+
+# ------------------------------------------------------------
+# Release artifact exceptions
+# Keep the Release folder's useful installer/resources/source
+# files versioned, while leaving large compiled executables ignored.
+# ------------------------------------------------------------
+
+!x64/
+x64/*
+!x64/Release/
+x64/Release/*
+!x64/Release/install_script.nsi
+!x64/Release/LICENCE.rtf
+!x64/Release/README.html
+!x64/Release/Windows_Hello_Fix_v2_0.exe.metagen
+!x64/Release/WindowsHelloFix.ico
+
+# Keep compiled executables out of Git history.
+x64/Release/Windows_Hello_Fix_Setup.exe
+x64/Release/Windows_Hello_Fix_v2_0.exe

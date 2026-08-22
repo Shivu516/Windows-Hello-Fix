@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="generator" content="Markdown Studio">
+  <title>README</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+        'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+      line-height: 1.8;
+      color: #1a1a1a;
+      background-color: #ffffff;
+      padding: 2rem;
+      max-width: 800px;
+      margin: 0 auto;
+    }
+
+    h1, h2, h3, h4, h5, h6 {
+      margin-top: 2rem;
+      margin-bottom: 1rem;
+      font-weight: 600;
+      line-height: 1.3;
+    }
+
+    h1 {
+      font-size: 2.5rem;
+      border-bottom: 2px solid #e0e0e0;
+      padding-bottom: 0.5rem;
+    }
+
+    h2 {
+      font-size: 2rem;
+      border-bottom: 1px solid #e0e0e0;
+      padding-bottom: 0.25rem;
+    }
+
+    h3 { font-size: 1.5rem; }
+    h4 { font-size: 1.25rem; }
+    h5 { font-size: 1.125rem; }
+    h6 { font-size: 1rem; color: #666; }
+
+    p {
+      margin-bottom: 1rem;
+    }
+
+    a {
+      color: #0066cc;
+      text-decoration: none;
+      border-bottom: 1px solid transparent;
+      transition: all 0.2s;
+    }
+
+    a:hover {
+      border-bottom-color: #0066cc;
+    }
+
+    ul, ol {
+      margin: 1rem 0;
+      padding-left: 2rem;
+    }
+
+    li {
+      margin-bottom: 0.5rem;
+    }
+
+    code {
+      font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono',
+        Consolas, 'Courier New', monospace;
+      font-size: 0.9em;
+      background-color: #f5f5f5;
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+
+    pre {
+      background-color: #f8f8f8;
+      border: 1px solid #e0e0e0;
+      border-radius: 6px;
+      padding: 1rem;
+      margin: 1rem 0;
+      overflow-x: auto;
+    }
+
+    pre code {
+      background-color: transparent;
+      padding: 0;
+      font-size: 0.875rem;
+      line-height: 1.5;
+    }
+
+    blockquote {
+      margin: 1rem 0;
+      padding: 0.5rem 1rem;
+      border-left: 4px solid #58996c;
+      background-color: #f5f5f5;
+      color: #666;
+      font-style: italic;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 1rem 0;
+      font-size: 0.9rem;
+    }
+
+    th, td {
+      padding: 0.75rem;
+      border: 1px solid #e0e0e0;
+      text-align: left;
+    }
+
+    th {
+      background-color: #f5f5f5;
+      font-weight: 600;
+    }
+
+    tr:nth-child(even) {
+      background-color: #fafafa;
+    }
+
+    hr {
+      margin: 2rem 0;
+      border: none;
+      border-top: 2px solid #e0e0e0;
+    }
+
+    img {
+      max-width: 100%;
+      height: auto;
+      border-radius: 6px;
+      margin: 1rem 0;
+    }
+
+    /* Syntax Highlighting */
+    .hljs {
+      display: block;
+      overflow-x: auto;
+      padding: 0;
+      background: transparent;
+    }
+
+    .hljs-comment,
+    .hljs-quote {
+      color: #998;
+      font-style: italic;
+    }
+
+    .hljs-keyword,
+    .hljs-selector-tag,
+    .hljs-subst {
+      color: #333;
+      font-weight: bold;
+    }
+
+    .hljs-number,
+    .hljs-literal,
+    .hljs-variable,
+    .hljs-template-variable,
+    .hljs-tag .hljs-attr {
+      color: #008080;
+    }
+
+    .hljs-string,
+    .hljs-doctag {
+      color: #d14;
+    }
+
+    .hljs-title,
+    .hljs-section,
+    .hljs-selector-id {
+      color: #900;
+      font-weight: bold;
+    }
+
+    .hljs-subst {
+      font-weight: normal;
+    }
+
+    .hljs-type,
+    .hljs-class .hljs-title {
+      color: #458;
+      font-weight: bold;
+    }
+
+    .hljs-tag,
+    .hljs-name,
+    .hljs-attribute {
+      color: #000080;
+      font-weight: normal;
+    }
+
+    .hljs-regexp,
+    .hljs-link {
+      color: #009926;
+    }
+
+    .hljs-symbol,
+    .hljs-bullet {
+      color: #990073;
+    }
+
+    .hljs-built_in,
+    .hljs-builtin-name {
+      color: #0086b3;
+    }
+
+    .hljs-meta {
+      color: #999;
+      font-weight: bold;
+    }
+
+    .hljs-deletion {
+      background: #fdd;
+    }
+
+    .hljs-addition {
+      background: #dfd;
+    }
+
+    .hljs-emphasis {
+      font-style: italic;
+    }
+
+    .hljs-strong {
+      font-weight: bold;
+    }
+
+    /* Embeds (YouTube, Vimeo, CodePen, Gist) */
+    iframe {
+      max-width: 100%;
+      border: 1px solid #e0e0e0;
+      border-radius: 8px;
+      margin: 1.5rem 0;
+    }
+
+    /* Embed containers - wrap iframes for better print handling */
+    .embed-container {
+      position: relative;
+      margin: 1.5rem 0;
+    }
+
+    .embed-container iframe {
+      width: 100%;
+      height: 400px;
+    }
+
+    /* Print URL below embeds (hidden on screen) */
+    .embed-print-url {
+      display: none;
+    }
+
+    /* Task list checkboxes */
+    .task-list-item-checkbox {
+      margin-right: 0.5rem;
+    }
+
+    /* Highlight (==text==) */
+    mark {
+      background-color: #fff3cd;
+      padding: 2px 4px;
+      border-radius: 3px;
+    }
+
+    /* Subscript and superscript */
+    sub, sup {
+      font-size: 0.8em;
+    }
+
+    /* KaTeX math rendering */
+    .katex {
+      font-size: 1.1em;
+    }
+
+    .katex-error {
+      color: #c00;
+      background-color: #fee;
+      padding: 2px 4px;
+      border-radius: 3px;
+    }
+
+    /* Footnotes */
+    .footnotes {
+      margin-top: 3rem;
+      padding-top: 1rem;
+      border-top: 1px solid #e0e0e0;
+      font-size: 0.9em;
+      color: #666;
+    }
+
+    .footnote-ref {
+      font-size: 0.8em;
+      vertical-align: super;
+    }
+
+    /* Alerts (marked-alert) */
+    .markdown-alert {
+      padding: 1rem;
+      margin: 1rem 0;
+      border-left: 4px solid;
+      border-radius: 4px;
+    }
+
+    .markdown-alert-note {
+      border-color: #0969da;
+      background-color: #ddf4ff;
+    }
+
+    .markdown-alert-tip {
+      border-color: #1a7f37;
+      background-color: #dafbe1;
+    }
+
+    .markdown-alert-important {
+      border-color: #8250df;
+      background-color: #fbefff;
+    }
+
+    .markdown-alert-warning {
+      border-color: #9a6700;
+      background-color: #fff8c5;
+    }
+
+    .markdown-alert-caution {
+      border-color: #d1242f;
+      background-color: #ffebe9;
+    }
+
+    @media print {
+      body {
+        max-width: 100%;
+        padding: 1rem;
+      }
+
+      /* Hide iframes when printing (they don't print anyway due to cross-origin) */
+      iframe {
+        display: none !important;
+      }
+
+      /* Show the embed URL instead when printing */
+      .embed-print-url {
+        display: block !important;
+        padding: 1rem;
+        margin: 1rem 0;
+        background-color: #f5f5f5;
+        border: 2px solid #ccc;
+        border-radius: 8px;
+        page-break-inside: avoid;
+      }
+
+      .embed-print-url strong {
+        display: block;
+        margin-bottom: 0.5rem;
+        color: #333;
+      }
+
+      .embed-print-url a {
+        color: #0066cc;
+        text-decoration: underline;
+        word-break: break-all;
+      }
+    }
+  </style>
+</head>
+<body>
+  <h1 id="windows-hello-camera-fix-v20-">Windows Hello Camera Fix v2.0 📸⚡</h1>
+<blockquote>
+<p>"Because your camera shouldn't be picky"</p>
+</blockquote>
+<hr>
+<h2 id="-overview--core-mechanics">🚀 Overview &amp; Core Mechanics</h2>
+<h3 id="version-20-the-total-overhaul">Version 2.0: The Total Overhaul</h3>
+<p>This version is a ground-up rewrite of v1.0, utilizing a high-performance native C++ core. It sits passively in your system architecture to automate hardware state transitions during authentication cycles.</p>
+<h2 id="-the-problem-a-biometric-identity-crisis">🛑 The Problem: A Biometric Identity Crisis</h2>
+<p>Many high-end laptops and 2-in-1s feature Windows Hello facial recognition, which utilizes two distinct front-facing sensors: a standard RGB (color) camera and an Infrared (IR) sensor.</p>
+<p>In theory, they should work in harmony. In practice, they behave like two siblings fighting over a single toy. Upon waking from sleep or locking the screen, Windows frequently experiences a brief existential crisis. It attempts to authenticate your face using the slower, light-dependent RGB camera instead of the instant IR sensor, or it gets hopelessly confused trying to match live IR data against an RGB-based baseline template.</p>
+<p>The result? You are left staring blankly at your screen during an endless "Looking for you" loading loop, only to be forced to type your PIN like a peasant.</p>
+<h2 id="the-solution--strategic-camera-blinding">The Solution 💡: Strategic Camera Blinding</h2>
+<p>Fortunately, Windows Hello can be tricked into working flawlessly by simply disabling the RGB color camera right before the system locks. Deprived of its favorite distraction, Windows is forced to use the superior IR sensor, resulting in near-instant unlocks—even in pitch-black darkness.</p>
+<p>This program automates that exact act of digital sabotage. It safely turns off your RGB camera the moment you lock your PC, and politely turns it back on once you are safely logged in.</p>
+<h3 id="how-it-works">How It Works</h3>
+<ul>
+<li><strong>Session Monitoring:</strong>&nbsp;The utility continuously tracks active Windows Session states.</li>
+<li><strong>On Lock:</strong>&nbsp;It instantly disables the conflicting or selected RGB sensor.</li>
+<li><strong>On Unlock:</strong>&nbsp;It re-enables the camera hardware immediately to restore normal operation.</li>
+</ul>
+<p><em><strong>Note:</strong></em>&nbsp;Because this program only triggers during lock and unlock events, it will not assist you if Windows Hello pops up while you are actively using the PC (such as authenticating browser passkeys or app logins). For those moments, your cameras will just have to figure it out themselves.</p>
+<hr>
+<h2 id="-performance-speed--requirements">⚡ Performance, Speed &amp; Requirements</h2>
+<h3 id="improvements--benchmarks">Improvements &amp; Benchmarks</h3>
+<ul>
+<li><strong>Performance:</strong>&nbsp;Delivers ~85% faster hardware state toggling compared to older iterations.</li>
+<li><strong>Response Time:</strong>&nbsp;Triggers within a ~100ms window utilizing native Windows message handling.</li>
+<li><strong>Reliability Layer:</strong>&nbsp;Features integrated "Shutdown Protection" to guarantee your camera peripherals are safely re-enabled upon system reboot</li>
+</ul>
+<h3 id="system-requirements">System Requirements</h3>
+<ul>
+<li><strong>Operating System:</strong>&nbsp;Windows 10 or Windows 11.</li>
+<li><strong>Privileges:</strong>&nbsp;Administrative Privileges are strictly required to authorize low-level hardware access.</li>
+</ul>
+<hr>
+<h2 id="️-safety-safeguards--reliability-features">🛡️ Safety Safeguards &amp; Reliability Features</h2>
+<ul>
+<li><strong>Hardware Event Debouncing (Thrash Protection):</strong>&nbsp;Windows frequently broadcasts rapid, duplicate lock/unlock or power signals. The application engine enforces a strict 1500ms cooldown threshold timestamp comparison to intercept and neutralize duplicate signals, preventing aggressive hardware driver thrashing or infinite toggle loops.</li>
+<li><strong>Check-Before-Change Logic:</strong>&nbsp;Before dispatching command signals to the hardware driver, the app actively queries the current Device Node Status. If the camera is already in the requested state, it cleanly aborts the operation to conserve CPU cycles and prevent the Windows FrameServer from crashing.</li>
+<li><strong>Triple-Pass Verification &amp; Self-Healing:</strong>&nbsp;The application executes a verification loop up to three times to confirm the hardware state actually changed. If Windows ignores the state change request, the engine automatically re-enumerates the device node (<code>CM_Reenumerate_DevNode</code>) and forces a driver reset.</li>
+<li><strong>Atomic Single-Instance Mutex:</strong>&nbsp;Utilizes a native Win32 Named Mutex (<code>Global\WindowsHelloFix_AppMutex</code>) to absolutely guarantee that only one instance of the hardware manager can run at a time, preventing data race corruption and crossed wires.</li>
+<li><strong>Ghost-Process Recovery:</strong>&nbsp;If the app is launched while a background instance is frozen or stuck, the GUI detects the dead lock and offers a "Force Reset" path to instantly kill the ghost process, recover the camera, and restart cleanly.</li>
+<li><strong>Shutdown &amp; Logoff Protection:</strong>&nbsp;Intercepts <code>WM_ENDSESSION</code>&nbsp;and <code>WM_QUERYENDSESSION</code>&nbsp;system messages. Right before Windows powers down or logs the user out, the application executes a final override to disable the conflicting RGB camera, ensuring the biometric template remains pure for the next cold boot.</li>
+<li><strong>String Sanitization (<code>TrimTrailingChars</code>):</strong>&nbsp;Hardened C++ string parsing automatically strips out invisible carriage returns (<code>\r\n</code>) from the configuration file, preventing silent string-matching failures when the app compares saved settings to live hardware identifiers.</li>
+</ul>
+<hr>
+<h2 id="️-performance--optimization-tricks">⚙️ Performance &amp; Optimization Tricks</h2>
+<ul>
+<li><strong>Native SetupAPI &amp; Configuration Manager Integration:</strong>&nbsp;Bypasses sluggish PowerShell scripts and command-line wrappers entirely. It utilizes direct C++ calls to the Windows kernel's Plug and Play (PnP) subsystem (<code>SetupDiCallClassInstaller</code>&nbsp;and <code>CM_Enable_DevNode</code>), allowing for near-instantaneous hardware toggling.</li>
+<li><strong>Direct Window Message Hooking (<code>WndProc</code>):</strong>&nbsp;Instead of relying on a slow background loop or Task Scheduler to poll for session changes, the app hooks directly into the Windows Message pipeline (<code>WM_WTSSESSION_CHANGE</code>) to react to lock/unlock events in milliseconds.</li>
+<li><strong>Low-Level Power Interrupts:</strong>&nbsp;Registers directly for <code>GUID_LIDSWITCH_STATE_CHANGE</code>&nbsp;and <code>GUID_POWER_BUTTON_TIMESTAMP</code>&nbsp;events via <code>RegisterPowerSettingNotification</code>. This allows the application to detect physical laptop lid closures and power button presses instantly, beating standard Windows Hello wake sequences to the punch.</li>
+<li><strong>Intelligent Auto-Targeting (<code>MI_00</code> Scanning):</strong>&nbsp;The application dynamically scans the <code>DIGCF_PRESENT</code>&nbsp;device tree on startup and parses interface substrings to automatically locate the correct RGB sensor interface (<code>MI_00</code>), eliminating user guesswork during setup.</li>
+<li><strong>Zero-Overhead Background Daemon Mode:</strong>&nbsp;When launched as a background task, the application drops its visual footprint to zero (<code>Opacity = 0</code>, <code>ShowInTaskbar = false</code>) and rests entirely passively. It uses 0% CPU while waiting for native OS interrupt signals, maintaining absolute battery efficiency.</li>
+</ul>
+<hr>
+<h2 id="️-current-limitations">⚠️ Current Limitations</h2>
+<ul>
+<li><strong>Operational Scope:</strong>&nbsp;This utility is specifically engineered to handle Windows Sign-In (Lock/Unlock) and Sign-Out events exclusively.</li>
+<li><strong>Application Conflicts:</strong>&nbsp;It does <strong>NOT</strong>&nbsp;currently handle Windows Hello prompts triggered inside third-party applications or internal Windows system settings. Attempting to implement system-wide fixes during development introduced hardware collision issues that rendered the release unstable, resulting in the feature being omitted from this version.</li>
+</ul>
+<hr>
+<h3 id="️-safety-safeguards--reliability-features-1">🛡️ Safety Safeguards &amp; Reliability Features</h3>
+<ul>
+<li><strong>Hardware Event Debouncing (Thrash Protection):</strong>&nbsp;Windows is notorious for sending duplicate lock/unlock or power signals in rapid succession. The application engine utilizes a strict 1500ms cooldown threshold timestamp comparison to intercept and neutralize duplicate signals, preventing aggressive hardware driver thrashing or infinite toggle loops.</li>
+<li><strong>Check-Before-Change Logic:</strong>&nbsp;Before dispatching command signals to the hardware driver, the app actively queries the current Device Node Status. If the camera is already in the requested state, it cleanly aborts the operation. This saves CPU cycles and prevents the Windows FrameServer from crashing due to redundant driver calls.</li>
+<li><strong>Triple-Pass Verification &amp; Self-Healing:</strong>&nbsp;It doesn't just blindly send a disable/enable command. It executes a verification loop up to three times to confirm the hardware state actually changed. If Windows ignores the request, the application automatically re-enumerates the device node (<code>CM_Reenumerate_DevNode</code>) and forces a driver reset.</li>
+<li><strong>Atomic Single-Instance Mutex:</strong>&nbsp;Utilizes a native Win32 Named Mutex (<code>Global\WindowsHelloFix_AppMutex</code>) to absolutely guarantee that only one instance of the hardware manager can run at a time, preventing data race corruption and crossed wires.</li>
+<li><strong>Ghost-Process Recovery:</strong>&nbsp;If a user tries to launch the app while a background instance is frozen or stuck, the GUI detects the dead lock and offers a "Force Reset" path. This instantly kills the ghost process, forces the camera back on, and restarts the application cleanly.</li>
+<li><strong>Shutdown &amp; Logoff Protection:</strong>&nbsp;Intercepts <code>WM_ENDSESSION</code>&nbsp;and <code>WM_QUERYENDSESSION</code>&nbsp;system messages. Right before Windows powers down or logs the user out, the application executes a final override to disable the conflicting RGB camera, ensuring the biometric template remains pure for the next cold boot.</li>
+<li><strong>String Sanitization (<code>TrimTrailingChars</code>):</strong>&nbsp;Hardened C++ string parsing automatically strips out invisible carriage returns (<code>\r\n</code>) from the configuration file, preventing silent string-matching failures when the app compares saved settings to live hardware identifiers.</li>
+</ul>
+<hr>
+<h3 id="-performance--optimization-tricks">⚡ Performance &amp; Optimization Tricks</h3>
+<ul>
+<li><strong>Native SetupAPI &amp; Configuration Manager Integration:</strong>&nbsp;Bypasses sluggish PowerShell scripts and command-line wrappers entirely. It utilizes direct C++ calls to the Windows kernel's Plug and Play (PnP) subsystem (<code>SetupDiCallClassInstaller</code>&nbsp;and <code>CM_Enable_DevNode</code>), allowing for near-instantaneous hardware toggling.</li>
+<li><strong>Direct Window Message Hooking (<code>WndProc</code>):</strong>&nbsp;Instead of relying on a slow background loop or Task Scheduler to poll for session changes, the app hooks directly into the Windows Message pipeline (<code>WM_WTSSESSION_CHANGE</code>). This allows the app to react to lock/unlock events in milliseconds.</li>
+<li><strong>Low-Level Power Interrupts:</strong>&nbsp;Registers directly for <code>GUID_LIDSWITCH_STATE_CHANGE</code>&nbsp;and <code>GUID_POWER_BUTTON_TIMESTAMP</code>&nbsp;events via <code>RegisterPowerSettingNotification</code>. This allows the application to detect physical laptop lid closures and power button presses instantly, beating standard Windows Hello wake sequences to the punch.</li>
+<li><strong>Intelligent Auto-Targeting (<code>MI_00</code> Scanning):</strong>&nbsp;The application dynamically scans the <code>DIGCF_PRESENT</code>&nbsp;device tree on startup and parses interface substrings to automatically locate the correct RGB sensor interface (<code>MI_00</code>), eliminating user guesswork during setup.</li>
+<li><strong>Zero-Overhead Background Daemon Mode:</strong>&nbsp;When launched as a background task, the application drops its visual footprint to zero (<code>Opacity = 0</code>, <code>ShowInTaskbar = false</code>) and rests entirely passively. It uses 0% CPU while waiting for native OS interrupt signals, maintaining absolute battery efficiency.</li>
+</ul>
+<hr>
+
+</body>
+</html>

@@ -1,0 +1,131 @@
+ImageRuntimeVersion: v4.0.30319
+Assembly Windows_Hello_Fix_v2_0, Version=0.0.*, Culture=Invariant Language (Invariant Country): 
+	hash=SHA1, flags=PublicKey
+Assembly mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089: 
+	hash=None, flags=None
+Assembly System.Data, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089: 
+	hash=None, flags=None
+Assembly System, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089: 
+	hash=None, flags=None
+Assembly System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a: 
+	hash=None, flags=None
+Assembly System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089: 
+	hash=None, flags=None
+Assembly System.Xml, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089: 
+	hash=None, flags=None
+Class ConfigPaths: AutoLayout, AnsiClass, Class, Public, BeforeFieldInit
+    Void .ctor(): PrivateScope, Public, HideBySig, SpecialName, RTSpecialName
+  Methods:
+    GetConfigFilePath(): PrivateScope, Public, Static, HideBySig
+    GetDiagnosticLogFilePath(): PrivateScope, Public, Static, HideBySig
+Class ConfigStore: AutoLayout, AnsiClass, Class, Public, BeforeFieldInit
+    Void .ctor(): PrivateScope, Public, HideBySig, SpecialName, RTSpecialName
+  Methods:
+    WriteDiagnosticLog(String, String, Boolean(HasFieldMarshal)): PrivateScope, Public, Static, HideBySig
+    WriteDiagnosticLogWithDevice(String, basic_string<wchar_t\,std::char_traits<wchar_t>\,std::allocator<wchar_t> >*, String, Boolean(HasFieldMarshal)): PrivateScope, Public, Static, HideBySig
+    SaveConfigState(Boolean(HasFieldMarshal), String): PrivateScope, Public, Static, HideBySig
+    LoadConfigState(String&(Out)): PrivateScope, Public, Static, HideBySig
+    EnsureConfigFileExists(String): PrivateScope, Public, Static, HideBySig
+Class CommandLine: AutoLayout, AnsiClass, Class, Public, BeforeFieldInit
+    Void .ctor(): PrivateScope, Public, HideBySig, SpecialName, RTSpecialName
+  Methods:
+    IsBackgroundLaunch(String[]): PrivateScope, Public, Static, HideBySig
+    IsRestoreCameraCommand(String[]): PrivateScope, Public, Static, HideBySig
+    IsDisableCameraCommand(String[]): PrivateScope, Public, Static, HideBySig
+    ShouldHideWindow(String[]): PrivateScope, Public, Static, HideBySig
+Interface IUiSink: AutoLayout, AnsiClass, Class, Public, ClassSemanticsMask, Abstract, BeforeFieldInit
+  Methods:
+    AddDeviceToDropdown(String): PrivateScope, Public, Virtual, HideBySig, VtableLayoutMask, Abstract
+    ClearDeviceDropdown(): PrivateScope, Public, Virtual, HideBySig, VtableLayoutMask, Abstract
+    SetSelectedDeviceIndex(Int32): PrivateScope, Public, Virtual, HideBySig, VtableLayoutMask, Abstract
+    GetDeviceCount(): PrivateScope, Public, Virtual, HideBySig, VtableLayoutMask, Abstract
+    SetDeviceDropdownEnabled(Boolean(HasFieldMarshal)): PrivateScope, Public, Virtual, HideBySig, VtableLayoutMask, Abstract
+    SetToggleButtonText(String): PrivateScope, Public, Virtual, HideBySig, VtableLayoutMask, Abstract
+    SetStatusText(String, Color): PrivateScope, Public, Virtual, HideBySig, VtableLayoutMask, Abstract
+    SetWindowVisibleForBackground(Boolean(HasFieldMarshal)): PrivateScope, Public, Virtual, HideBySig, VtableLayoutMask, Abstract
+    BringWindowToFront(): PrivateScope, Public, Virtual, HideBySig, VtableLayoutMask, Abstract
+    PromptGhostReset(): PrivateScope, Public, Virtual, HideBySig, VtableLayoutMask, Abstract
+    ShowNoDeviceSelectedMessage(): PrivateScope, Public, Virtual, HideBySig, VtableLayoutMask, Abstract
+    ShowBackgroundNotice(): PrivateScope, Public, Virtual, HideBySig, VtableLayoutMask, Abstract
+Class ApplicationController: AutoLayout, AnsiClass, Class, Public, BeforeFieldInit
+    Void .ctor(IUiSink): PrivateScope, Public, HideBySig, SpecialName, RTSpecialName
+  Interfaces:
+    System.IDisposable
+  Properties:
+    Boolean IsAlreadyDisabled 'get set' : 
+    Boolean IsSystemEnding 'get set' : 
+    Boolean IsMonitoring 'get set' : 
+  Methods:
+    Initialize(HWND__*, String[]): PrivateScope, Public, HideBySig
+    Shutdown(Boolean(HasFieldMarshal)): PrivateScope, Public, HideBySig
+    HandleSystemEnd(HWND__*): PrivateScope, Public, HideBySig
+    HandlePowerEvent(SystemEvent): PrivateScope, Public, HideBySig
+    HandleSessionEvent(SystemEvent): PrivateScope, Public, HideBySig
+    ToggleMonitoring(): PrivateScope, Public, HideBySig
+    TryGetTargetCameraInstanceId(basic_string<wchar_t\,std::char_traits<wchar_t>\,std::allocator<wchar_t> >* IsImplicitlyDereferenced, Boolean(HasFieldMarshal)): PrivateScope, Public, HideBySig
+    DisableTargetCameraHardware(Boolean(HasFieldMarshal)): PrivateScope, Public, HideBySig
+    EnableTargetCameraHardware(Boolean(HasFieldMarshal)): PrivateScope, Public, HideBySig
+    RestoreConfiguredCameraHardware(Boolean(HasFieldMarshal)): PrivateScope, Public, HideBySig
+    get_IsMonitoring(): PrivateScope, Public, HideBySig, SpecialName
+    set_IsMonitoring(Boolean(HasFieldMarshal)): PrivateScope, Public, HideBySig, SpecialName
+    get_IsSystemEnding(): PrivateScope, Public, HideBySig, SpecialName
+    set_IsSystemEnding(Boolean(HasFieldMarshal)): PrivateScope, Public, HideBySig, SpecialName
+    get_IsAlreadyDisabled(): PrivateScope, Public, HideBySig, SpecialName
+    set_IsAlreadyDisabled(Boolean(HasFieldMarshal)): PrivateScope, Public, HideBySig, SpecialName
+    SetHwnd(HWND__*): PrivateScope, Public, HideBySig
+    OnWakeupSignal(): PrivateScope, Public, HideBySig
+    SetSelectedInstanceId(basic_string<wchar_t\,std::char_traits<wchar_t>\,std::allocator<wchar_t> >* IsImplicitlyDereferenced): PrivateScope, Public, HideBySig
+    GetSelectedInstanceIdNative(basic_string<wchar_t\,std::char_traits<wchar_t>\,std::allocator<wchar_t> >*): PrivateScope, Public, HideBySig
+    GetSelectedInstanceIdManaged(): PrivateScope, Public, HideBySig
+    Dispose(): PrivateScope, Public, Final, Virtual, HideBySig
+Class UiConstants: AutoLayout, AnsiClass, Class, Public, Abstract, Sealed, BeforeFieldInit
+  Fields:
+    System.String FormText = Windows Hello Fix v2.0 : Public, Static, Literal, HasDefault
+    System.String FormName = MyForm : Public, Static, Literal, HasDefault
+    System.String LabelSelectSensor = Select Target RGB Sensor : Public, Static, Literal, HasDefault
+    System.String ButtonStart = Start Monitoring Service : Public, Static, Literal, HasDefault
+    System.String ButtonStop = Stop Monitoring Service : Public, Static, Literal, HasDefault
+    System.String StatusStopped = Status: Service Stopped : Public, Static, Literal, HasDefault
+    System.String StatusRunning = Status: Service Running : Public, Static, Literal, HasDefault
+    System.String MessageNoDeviceTitle = No Device Selected : Public, Static, Literal, HasDefault
+    System.String MessageNoDeviceText = Please select a camera device. : Public, Static, Literal, HasDefault
+    System.String MessageBackgroundTitle = Background Service Active : Public, Static, Literal, HasDefault
+    System.String MessageBackgroundText = The program is running in the background. To close it completely, click 'Stop Monitoring Service' or kill 'Windows_Hello_Fix_v2_0.exe' in Task Manager. : Public, Static, Literal, HasDefault
+    System.String MessageGhostTitle = Application Already Running : Public, Static, Literal, HasDefault
+    System.String MessageGhostText = Windows Hello Fix is already running in the background.
+
+If the application is frozen or not responding, would you like to force a reset and restart it? : Public, Static, Literal, HasDefault
+    System.String NameDeviceDrop = deviceDrop : Public, Static, Literal, HasDefault
+    System.String NameToggleButton = btnToggle : Public, Static, Literal, HasDefault
+    Int32 FormWidth = 430 : Public, Static, Literal, HasDefault
+    Int32 FormHeight = 240 : Public, Static, Literal, HasDefault
+    Int32 DeviceDropX = 25 : Public, Static, Literal, HasDefault
+    Int32 DeviceDropY = 75 : Public, Static, Literal, HasDefault
+    Int32 DeviceDropWidth = 380 : Public, Static, Literal, HasDefault
+    Int32 DeviceDropHeight = 31 : Public, Static, Literal, HasDefault
+    Int32 ToggleButtonX = 25 : Public, Static, Literal, HasDefault
+    Int32 ToggleButtonY = 130 : Public, Static, Literal, HasDefault
+    Int32 ToggleButtonWidth = 380 : Public, Static, Literal, HasDefault
+    Int32 ToggleButtonHeight = 45 : Public, Static, Literal, HasDefault
+    Int32 LabelTitleX = 20 : Public, Static, Literal, HasDefault
+    Int32 LabelTitleY = 25 : Public, Static, Literal, HasDefault
+    Int32 LabelStatusX = 25 : Public, Static, Literal, HasDefault
+    Int32 LabelStatusY = 195 : Public, Static, Literal, HasDefault
+Class Windows_Hello_Fix_v2_0.MyForm: AutoLayout, AnsiClass, Class, Public, BeforeFieldInit
+  :System.Windows.Forms.Form
+    Void .ctor(): PrivateScope, Public, HideBySig, SpecialName, RTSpecialName
+  Interfaces:
+    IUiSink
+  Methods:
+    AddDeviceToDropdown(String): PrivateScope, Public, Final, Virtual, HideBySig, VtableLayoutMask
+    ClearDeviceDropdown(): PrivateScope, Public, Final, Virtual, HideBySig, VtableLayoutMask
+    SetSelectedDeviceIndex(Int32): PrivateScope, Public, Final, Virtual, HideBySig, VtableLayoutMask
+    GetDeviceCount(): PrivateScope, Public, Final, Virtual, HideBySig, VtableLayoutMask
+    SetDeviceDropdownEnabled(Boolean(HasFieldMarshal)): PrivateScope, Public, Final, Virtual, HideBySig, VtableLayoutMask
+    SetToggleButtonText(String): PrivateScope, Public, Final, Virtual, HideBySig, VtableLayoutMask
+    SetStatusText(String, Color): PrivateScope, Public, Final, Virtual, HideBySig, VtableLayoutMask
+    SetWindowVisibleForBackground(Boolean(HasFieldMarshal)): PrivateScope, Public, Final, Virtual, HideBySig, VtableLayoutMask
+    BringWindowToFront(): PrivateScope, Public, Final, Virtual, HideBySig, VtableLayoutMask
+    PromptGhostReset(): PrivateScope, Public, Final, Virtual, HideBySig, VtableLayoutMask
+    ShowNoDeviceSelectedMessage(): PrivateScope, Public, Final, Virtual, HideBySig, VtableLayoutMask
+    ShowBackgroundNotice(): PrivateScope, Public, Final, Virtual, HideBySig, VtableLayoutMask
