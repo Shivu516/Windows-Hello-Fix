@@ -23,6 +23,63 @@ using namespace System;
 using namespace System::Windows::Forms;
 using namespace System::Drawing;
 
+// ---------------------------------------------------------------------------
+// Failsafe boot helpers (no persistent daemon, no second hardware impl)
+// ---------------------------------------------------------------------------
+static bool IsHelloFixDaemonAlive() {
+    HANDLE hMutex = OpenMutex(SYNCHRONIZE, FALSE, L"Global\\WindowsHelloFix_AppMutex");
+    if (hMutex) {
+        CloseHandle(hMutex);
+        return true;
+    }
+    return false;
+}
+
+static System::String^ GetFailsafeBootId() {
+    ULONGLONG tickMs = GetTickCount64();
+    System::TimeSpan up = System::TimeSpan::FromMilliseconds((double)tickMs);
+    System::DateTime bootTime = System::DateTime::Now - up;
+    // Boot session identifier — stable for one boot, changes each reboot
+    return bootTime.ToString("yyyyMMdd_HHmmss");
+}
+
+static System::String^ GetFailsafeFlagPath(System::String^ bootId) {
+    System::String^ dir = System::IO::Path::Combine(
+        System::Environment::GetFolderPath(System::Environment::SpecialFolder::ApplicationData),
+        L"Windows Hello Fix");
+    System::IO::Directory::CreateDirectory(dir);
+    return System::IO::Path::Combine(dir, L"failsafe_notified_" + bootId + L".flag");
+}
+
+static bool ShouldShowFailsafeNotificationThisBoot(System::String^ bootId) {
+    try {
+        System::String^ flagPath = GetFailsafeFlagPath(bootId);
+        if (System::IO::File::Exists(flagPath)) {
+            return false;
+        }
+        // Clean stale flags from previous boots (keep only current boot's flag)
+        System::String^ dir = System::IO::Path::GetDirectoryName(flagPath);
+        array<System::String^>^ oldFlags = System::IO::Directory::GetFiles(dir, L"failsafe_notified_*.flag");
+        for each (System::String^ f in oldFlags) {
+            try {
+                if (!f->Equals(flagPath, System::StringComparison::OrdinalIgnoreCase)) {
+                    System::IO::File::Delete(f);
+                }
+            } catch (...) {}
+        }
+        return true;
+    } catch (...) {
+        return true;
+    }
+}
+
+static void MarkFailsafeNotificationShownThisBoot(System::String^ bootId) {
+    try {
+        System::String^ flagPath = GetFailsafeFlagPath(bootId);
+        System::IO::File::WriteAllText(flagPath, System::DateTime::Now.ToString(L"yyyy-MM-dd HH:mm:ss"));
+    } catch (...) {}
+}
+
 ApplicationController::ApplicationController(IUiSink^ sink)
     : m_sink(sink), m_hwnd(NULL), m_isMonitoring(false), m_isSystemEnding(false), m_isAlreadyDisabled(false),
       m_cameraExpectedDisabled(false), m_selectedInstanceId(new std::wstring()), m_cachedCamerasPlaceholder(nullptr),
@@ -293,6 +350,96 @@ bool ApplicationController::Initialize(HWND hwnd, array<String^>^ args) {
         L"NoChange",
         IsCurrentProcessElevatedNative()
     );
+
+    if (CommandLine::IsFailsafeBootCommand(args)) {
+        ConfigStore::WriteDiagnosticLog(L"Failsafe_Start", L"NoChange", true);
+
+        // Safety gate: respect intentional Monitoring OFF
+        System::String^ failsafeDevice = L"";
+        bool failsafeMonitoring = ConfigStore::LoadConfigState(failsafeDevice);
+        if (!failsafeMonitoring) {
+            ConfigStore::WriteDiagnosticLog(L"Failsafe_Skipped_MonitoringOff", L"NoChange", true);
+            Environment::Exit(0);
+            return false;
+        }
+
+        // Check whether native daemon is already alive (mutex probe, no ownership)
+        if (IsHelloFixDaemonAlive()) {
+            ConfigStore::WriteDiagnosticLog(L"Failsafe_Healthy_DaemonRunning", L"NoChange", true);
+            Environment::Exit(0);
+            return false;
+        }
+
+        // Resolve target camera (persisted config → MI_00 heuristic)
+        std::wstring failsafeTargetId;
+        if (!TryGetTargetCameraInstanceId(failsafeTargetId, true)) {
+            ConfigStore::WriteDiagnosticLog(L"Failsafe_Skipped_NoTarget", L"NoChange", false);
+            Environment::Exit(0);
+            return false;
+        }
+
+        // Idempotent pre-check: if already enabled, do nothing
+        bool failsafeIsDisabled = false;
+        bool failsafeFound = GetCameraHardwareDisabledState(failsafeTargetId, failsafeIsDisabled);
+        if (!failsafeFound || !failsafeIsDisabled) {
+            ConfigStore::WriteDiagnosticLogWithDevice(L"Failsafe_Skipped_AlreadyEnabled", failsafeTargetId, L"Enabled", true);
+            Environment::Exit(0);
+            return false;
+        }
+
+        // Final liveness re-check immediately before touching hardware (avoid race where daemon started between checks)
+        if (IsHelloFixDaemonAlive()) {
+            ConfigStore::WriteDiagnosticLog(L"Failsafe_Healthy_DaemonRunning", L"NoChange", true);
+            Environment::Exit(0);
+            return false;
+        }
+
+        // Recovery: strictly enable-only, reuses existing recovery (verification+retry)
+        bool failsafeRecovered = RecoverCameraHardware(failsafeTargetId, true);
+        bool failsafeVerified = VerifyCameraHardwareState(failsafeTargetId, false);
+        bool failsafeSuccess = failsafeRecovered && failsafeVerified;
+
+        ConfigStore::WriteDiagnosticLogWithDevice(
+            System::String::Format(
+                L"Failsafe_{0} | Elevated={1} | IntegrityRid={2} | SetupErr={3} | CfgMgr={4} | Stage={5}",
+                failsafeSuccess ? L"Recovered" : L"Recover_Failed",
+                IsCurrentProcessElevatedNative() ? L"1" : L"0",
+                static_cast<System::Int32>(GetCurrentProcessIntegrityRid()),
+                static_cast<System::Int32>(InterlockedCompareExchange(&g_lastSetupApiError, 0, 0)),
+                static_cast<System::Int32>(InterlockedCompareExchange(&g_lastConfigManagerResult, 0, 0)),
+                static_cast<System::Int32>(InterlockedCompareExchange(&g_lastHardwareToggleStage, 0, 0))
+            ),
+            failsafeTargetId,
+            L"Enabled",
+            failsafeSuccess
+        );
+
+        System::String^ failsafeBootId = GetFailsafeBootId();
+        if (failsafeSuccess) {
+            if (ShouldShowFailsafeNotificationThisBoot(failsafeBootId)) {
+                MessageBox::Show(
+                    L"Windows Hello Fix did not start correctly after startup. Your camera was automatically re-enabled as a safety measure. Please start or enable Windows Hello Fix if you want camera protection to remain active.",
+                    L"Windows Hello Fix - Safety Recovery",
+                    MessageBoxButtons::OK,
+                    MessageBoxIcon::Information
+                );
+                MarkFailsafeNotificationShownThisBoot(failsafeBootId);
+            }
+        } else {
+            if (ShouldShowFailsafeNotificationThisBoot(failsafeBootId)) {
+                MessageBox::Show(
+                    L"Windows Hello Fix did not start correctly after startup and the camera could not be automatically re-enabled. Please start Windows Hello Fix manually or check Device Manager.",
+                    L"Windows Hello Fix - Recovery Failed",
+                    MessageBoxButtons::OK,
+                    MessageBoxIcon::Warning
+                );
+                MarkFailsafeNotificationShownThisBoot(failsafeBootId);
+            }
+        }
+
+        Environment::Exit(0);
+        return false;
+    }
 
     if (CommandLine::IsRestoreCameraCommand(args)) {
         ConfigStore::WriteDiagnosticLog(L"Command_EnableCamera_Begin", L"Enabled", true);

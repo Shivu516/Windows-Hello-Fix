@@ -117,20 +117,21 @@ Section "Core Files (Required)" SEC01
 
   ; --- AUTOMATED SYSTEM TASK REGISTRATION ENGINE ---
 
-   ; Wipe away duplicate stale task configurations and obsolete legacy camera-control tasks
+    ; Wipe away duplicate stale task configurations and obsolete legacy camera-control tasks
    ; Idempotent cleanup - tolerant of missing tasks (/F) and case-insensitive names
    ; Category A (retain) are deleted then recreated; Category B (obsolete) are removed and never recreated
   nsExec::ExecToLog 'schtasks /Delete /TN "WindowsHelloFix" /F'
   nsExec::ExecToLog 'schtasks /Delete /TN "WindowsHelloFix_LogCleanup" /F'
+  nsExec::ExecToLog 'schtasks /Delete /TN "WindowsHelloFix_Failsafe" /F'
   nsExec::ExecToLog 'schtasks /Delete /TN "WindowsHelloFix_Lock" /F'
   nsExec::ExecToLog 'schtasks /Delete /TN "WindowsHelloFix_Unlock" /F'
   nsExec::ExecToLog 'schtasks /Delete /TN "Disable Camera On Lock" /F'
   nsExec::ExecToLog 'schtasks /Delete /TN "Enable Camera On Unlock" /F'
   Sleep 1000
 
-   ; --- CRITICAL TASK SCHEDULER FIXES ---
+    ; --- CRITICAL TASK SCHEDULER FIXES ---
    ; Generate a PowerShell registration script instead of using fragile one-line shell quoting.
-   ; Native v2.x is authoritative: register only AtLogOn daemon and daily log-cleanup.
+   ; Native v2.x is authoritative: register only AtLogOn daemon, daily log-cleanup, and boot failsafe (enable-only).
    ; Lock/Unlock camera tasks are obsolete - removed above and never recreated to prevent duplicate/race control.
   InitPluginsDir
   FileOpen $1 "$PLUGINSDIR\RegisterWindowsHelloFixTasks.ps1" w
@@ -145,6 +146,11 @@ Section "Core Files (Required)" SEC01
   FileWrite $1 "$$cleanupAction = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument '/c break > $\"$APPDATA\Windows Hello Fix\diagnostic.log$\"'$\r$\n"
   FileWrite $1 "$$cleanupTrigger = New-ScheduledTaskTrigger -Daily -At 00:00$\r$\n"
   FileWrite $1 "Register-ScheduledTask -TaskName 'WindowsHelloFix_LogCleanup' -Description 'Windows Hello Fix maintenance task that cleans up old diagnostic log data.' -Action $$cleanupAction -Trigger $$cleanupTrigger -Principal $$principal -Settings $$settings -Force | Out-Null$\r$\n"
+  FileWrite $1 "$$fsAction = New-ScheduledTaskAction -Execute $$exe -Argument '--failsafe-boot' -WorkingDirectory $$wd$\r$\n"
+  FileWrite $1 "$$fsTrigger = New-ScheduledTaskTrigger -AtLogOn$\r$\n"
+  FileWrite $1 "$$fsTrigger.Delay = 'PT1M30S'$\r$\n"
+  FileWrite $1 "$$fsSettings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Seconds 120) -Priority 4$\r$\n"
+  FileWrite $1 "Register-ScheduledTask -TaskName 'WindowsHelloFix_Failsafe' -Description 'Windows Hello Fix boot safety check. Re-enables the configured camera if Hello Fix was configured for monitoring but failed to start. This task never disables the camera.' -Action $$fsAction -Trigger $$fsTrigger -Principal $$principal -Settings $$fsSettings -Force | Out-Null$\r$\n"
   FileClose $1
   nsExec::ExecToLog 'powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "$PLUGINSDIR\RegisterWindowsHelloFixTasks.ps1"'
 
@@ -184,10 +190,11 @@ Section "Uninstall"
     Sleep 3000
   skip_post_kill_camera_restore:
 
-   ; Purge all HelloFix-created scheduled tasks - tolerant of missing (/F)
-   ; Category A (current) + Category B (legacy redundant, no longer created)
+    ; Purge all HelloFix-created scheduled tasks - tolerant of missing (/F)
+   ; Category A (current: WindowsHelloFix, LogCleanup, Failsafe) + Category B (legacy redundant, no longer created)
   nsExec::ExecToLog 'schtasks /Delete /TN "WindowsHelloFix" /F'
   nsExec::ExecToLog 'schtasks /Delete /TN "WindowsHelloFix_LogCleanup" /F'
+  nsExec::ExecToLog 'schtasks /Delete /TN "WindowsHelloFix_Failsafe" /F'
   nsExec::ExecToLog 'schtasks /Delete /TN "WindowsHelloFix_Lock" /F'
   nsExec::ExecToLog 'schtasks /Delete /TN "WindowsHelloFix_Unlock" /F'
   nsExec::ExecToLog 'schtasks /Delete /TN "Disable Camera On Lock" /F'
