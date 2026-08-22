@@ -35,3 +35,12 @@ cmake-build-*/
 # Windows generated files
 Thumbs.db
 Desktop.ini
+
+# ------------------------------------------------------------
+# Tracked exceptions
+# ------------------------------------------------------------
+
+# The NSIS installer script is source code, not build output.
+!x64/
+!x64/Release/
+!x64/Release/install_script.nsi
