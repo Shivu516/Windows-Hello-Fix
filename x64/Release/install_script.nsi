@@ -117,16 +117,22 @@ Section "Core Files (Required)" SEC01
 
   ; --- AUTOMATED SYSTEM TASK REGISTRATION ENGINE ---
 
-  ; Wipe away duplicate stale task configurations
+   ; Wipe away duplicate stale task configurations and obsolete legacy camera-control tasks
+   ; Idempotent cleanup - tolerant of missing tasks (/F) and case-insensitive names
+   ; Category A (retain) are deleted then recreated; Category B (obsolete) are removed and never recreated
   nsExec::ExecToLog 'schtasks /Delete /TN "WindowsHelloFix" /F'
+  nsExec::ExecToLog 'schtasks /Delete /TN "WindowsHelloFix_LogCleanup" /F'
+  nsExec::ExecToLog 'schtasks /Delete /TN "WindowsHelloFix_Failsafe" /F'
   nsExec::ExecToLog 'schtasks /Delete /TN "WindowsHelloFix_Lock" /F'
   nsExec::ExecToLog 'schtasks /Delete /TN "WindowsHelloFix_Unlock" /F'
-  nsExec::ExecToLog 'schtasks /Delete /TN "WindowsHelloFix_LogCleanup" /F'
+  nsExec::ExecToLog 'schtasks /Delete /TN "Disable Camera On Lock" /F'
+  nsExec::ExecToLog 'schtasks /Delete /TN "Enable Camera On Unlock" /F'
   Sleep 1000
 
-  ; --- CRITICAL TASK SCHEDULER FIXES ---
-  ; Generate a PowerShell registration script instead of using fragile one-line shell quoting.
-  ; This creates the background logon task plus lock/unlock failsafe tasks with highest privileges.
+    ; --- CRITICAL TASK SCHEDULER FIXES ---
+   ; Generate a PowerShell registration script instead of using fragile one-line shell quoting.
+   ; Native v2.x is authoritative: register only AtLogOn daemon, daily log-cleanup, and boot failsafe (enable-only).
+   ; Lock/Unlock camera tasks are obsolete - removed above and never recreated to prevent duplicate/race control.
   InitPluginsDir
   FileOpen $1 "$PLUGINSDIR\RegisterWindowsHelloFixTasks.ps1" w
   FileWrite $1 "$$exe = '$INSTDIR\Windows_Hello_Fix_v2_0.exe'$\r$\n"
@@ -136,39 +142,15 @@ Section "Core Files (Required)" SEC01
   FileWrite $1 "$$trigger = New-ScheduledTaskTrigger -AtLogOn$\r$\n"
   FileWrite $1 "$$principal = New-ScheduledTaskPrincipal -UserId $$user -LogonType Interactive -RunLevel Highest$\r$\n"
   FileWrite $1 "$$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Seconds 0) -Priority 4$\r$\n"
-  FileWrite $1 "Register-ScheduledTask -TaskName 'WindowsHelloFix' -Action $$action -Trigger $$trigger -Principal $$principal -Settings $$settings -Force | Out-Null$\r$\n"
-  FileWrite $1 "function Register-WhfSessionTask([string]$$name, [int]$$stateChange, [string]$$arguments) {$\r$\n"
-  FileWrite $1 "  $$service = New-Object -ComObject 'Schedule.Service'$\r$\n"
-  FileWrite $1 "  $$service.Connect()$\r$\n"
-  FileWrite $1 "  $$root = $$service.GetFolder('\')$\r$\n"
-  FileWrite $1 "  $$task = $$service.NewTask(0)$\r$\n"
-  FileWrite $1 "  $$task.RegistrationInfo.Author = $$user$\r$\n"
-  FileWrite $1 "  $$task.Principal.UserId = $$user$\r$\n"
-  FileWrite $1 "  $$task.Principal.LogonType = 3$\r$\n"
-  FileWrite $1 "  $$task.Principal.RunLevel = 1$\r$\n"
-  FileWrite $1 "  $$trigger = $$task.Triggers.Create(11)$\r$\n"
-  FileWrite $1 "  $$trigger.StateChange = $$stateChange$\r$\n"
-  FileWrite $1 "  $$trigger.UserId = $$user$\r$\n"
-  FileWrite $1 "  $$trigger.Enabled = $$true$\r$\n"
-  FileWrite $1 "  $$action = $$task.Actions.Create(0)$\r$\n"
-  FileWrite $1 "  $$action.Path = $$exe$\r$\n"
-  FileWrite $1 "  $$action.Arguments = $$arguments$\r$\n"
-  FileWrite $1 "  $$action.WorkingDirectory = $$wd$\r$\n"
-  FileWrite $1 "  $$task.Settings.Enabled = $$true$\r$\n"
-  FileWrite $1 "  $$task.Settings.Hidden = $$true$\r$\n"
-  FileWrite $1 "  $$task.Settings.DisallowStartIfOnBatteries = $$false$\r$\n"
-  FileWrite $1 "  $$task.Settings.StopIfGoingOnBatteries = $$false$\r$\n"
-  FileWrite $1 "  $$task.Settings.StartWhenAvailable = $$true$\r$\n"
-  FileWrite $1 "  $$task.Settings.MultipleInstances = 2$\r$\n"
-  FileWrite $1 "  $$task.Settings.ExecutionTimeLimit = 'PT5M'$\r$\n"
-  FileWrite $1 "  $$task.Settings.Priority = 4$\r$\n"
-  FileWrite $1 "  $$root.RegisterTaskDefinition($$name, $$task, 6, $$null, $$null, 3, $$null) | Out-Null$\r$\n"
-  FileWrite $1 "}$\r$\n"
-  FileWrite $1 "Register-WhfSessionTask 'WindowsHelloFix_Lock' 7 '--disable-camera'$\r$\n"
-  FileWrite $1 "Register-WhfSessionTask 'WindowsHelloFix_Unlock' 8 '--enable-camera'$\r$\n"
-  FileWrite $1 "$$cleanupAction = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument '/c break > $\"$APPDATA\Windows Hello Fix\diagnostic.log$\"'$\r$\n"
-  FileWrite $1 "$$cleanupTrigger = New-ScheduledTaskTrigger -Daily -At 00:00$\r$\n"
-  FileWrite $1 "Register-ScheduledTask -TaskName 'WindowsHelloFix_LogCleanup' -Action $$cleanupAction -Trigger $$cleanupTrigger -Principal $$principal -Settings $$settings -Force | Out-Null$\r$\n"
+  FileWrite $1 "Register-ScheduledTask -TaskName 'WindowsHelloFix' -Description 'Starts Windows Hello Fix in the background at system startup so it can monitor Windows session and power events and manage the configured camera hardware.' -Action $$action -Trigger $$trigger -Principal $$principal -Settings $$settings -Force | Out-Null\r\n"
+  FileWrite $1 "$$cleanupAction = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument '/c break > $\"$APPDATA\\Windows Hello Fix\\diagnostic.log$\"'\r\n"
+  FileWrite $1 "$$cleanupTrigger = New-ScheduledTaskTrigger -Daily -At 00:00\r\n"
+  FileWrite $1 "Register-ScheduledTask -TaskName 'WindowsHelloFix_LogCleanup' -Description 'Windows Hello Fix maintenance task that cleans up old diagnostic log data.' -Action $$cleanupAction -Trigger $$cleanupTrigger -Principal $$principal -Settings $$settings -Force | Out-Null\r\n"
+  FileWrite $1 "$$fsAction = New-ScheduledTaskAction -Execute $$exe -Argument '--failsafe-boot' -WorkingDirectory $$wd\r\n"
+  FileWrite $1 "$$fsTrigger = New-ScheduledTaskTrigger -AtLogOn\r\n"
+  FileWrite $1 "$$fsTrigger.Delay = 'PT1M30S'\r\n"
+  FileWrite $1 "$$fsSettings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Seconds 120) -Priority 4\r\n"
+  FileWrite $1 "Register-ScheduledTask -TaskName 'WindowsHelloFix_Failsafe' -Description 'Windows Hello Fix boot safety check. Re-enables the configured camera if Hello Fix was configured for monitoring but failed to start. This task never disables the camera.' -Action $$fsAction -Trigger $$fsTrigger -Principal $$principal -Settings $$fsSettings -Force | Out-Null\r\n"
   FileClose $1
   nsExec::ExecToLog 'powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "$PLUGINSDIR\RegisterWindowsHelloFixTasks.ps1"'
 
@@ -208,12 +190,16 @@ Section "Uninstall"
     Sleep 3000
   skip_post_kill_camera_restore:
 
-  ; Purge registered task arrays
+    ; Purge all HelloFix-created scheduled tasks - tolerant of missing (/F)
+   ; Category A (current: WindowsHelloFix, LogCleanup, Failsafe) + Category B (legacy redundant, no longer created)
   nsExec::ExecToLog 'schtasks /Delete /TN "WindowsHelloFix" /F'
-  nsExec::ExecToLog 'schtasks /Delete /TN "WindowsHelloFix_Wake" /F'
+  nsExec::ExecToLog 'schtasks /Delete /TN "WindowsHelloFix_LogCleanup" /F'
+  nsExec::ExecToLog 'schtasks /Delete /TN "WindowsHelloFix_Failsafe" /F'
   nsExec::ExecToLog 'schtasks /Delete /TN "WindowsHelloFix_Lock" /F'
   nsExec::ExecToLog 'schtasks /Delete /TN "WindowsHelloFix_Unlock" /F'
-  nsExec::ExecToLog 'schtasks /Delete /TN "WindowsHelloFix_LogCleanup" /F'
+  nsExec::ExecToLog 'schtasks /Delete /TN "Disable Camera On Lock" /F'
+  nsExec::ExecToLog 'schtasks /Delete /TN "Enable Camera On Unlock" /F'
+  nsExec::ExecToLog 'schtasks /Delete /TN "WindowsHelloFix_Wake" /F'
 
   ; Clean registry values
   SetRegView 64

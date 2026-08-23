@@ -38,10 +38,10 @@ Desktop.ini
 
 # ------------------------------------------------------------
 # Release artifact exceptions
-# Keep the Release folder's useful installer/resources/source
-# files versioned, while leaving large compiled executables ignored.
+# Keep the Release folder's useful installer/resources/source files versioned, while leaving large compiled executables ignored.
+# Tracked exceptions
+# The NSIS installer script is source code, not build output.
 # ------------------------------------------------------------
-
 !x64/
 x64/*
 !x64/Release/
