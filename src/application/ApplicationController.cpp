@@ -315,14 +315,15 @@ bool ApplicationController::Initialize(HWND hwnd, array<String^>^ args) {
     bool alreadyExists = false;
     m_hAppMutex = SingleInstance::CreateAppMutex(alreadyExists);
     if (alreadyExists) {
-        bool wakeSignalSent = SingleInstance::TrySignalExistingInstance();
-        if (wakeSignalSent) {
-            ConfigStore::WriteDiagnosticLog(L"SingleInstance_WakeSignalSent", L"NoChange", true);
+        // Background/automatic launches must never wake the running daemon's GUI.
+        if (launchRequestedBackground) {
+            ConfigStore::WriteDiagnosticLog(L"SingleInstance_BackgroundSilentExit", L"NoChange", true);
             Environment::Exit(0);
             return false;
         }
-        if (launchRequestedBackground) {
-            ConfigStore::WriteDiagnosticLog(L"SingleInstance_BackgroundWakeEventMissing", L"NoChange", false);
+        bool wakeSignalSent = SingleInstance::TrySignalExistingInstance();
+        if (wakeSignalSent) {
+            ConfigStore::WriteDiagnosticLog(L"SingleInstance_WakeSignalSent", L"NoChange", true);
             Environment::Exit(0);
             return false;
         }

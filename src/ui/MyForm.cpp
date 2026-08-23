@@ -93,6 +93,7 @@ namespace Windows_Hello_Fix_v2_0 {
         );
     }
     void MyForm::BringWindowToFrontDelegate() {
+        this->Opacity = 1.0;
         this->Show();
         this->Visible = true;
         this->ShowInTaskbar = true;
