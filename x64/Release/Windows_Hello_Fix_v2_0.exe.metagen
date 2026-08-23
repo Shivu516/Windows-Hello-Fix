@@ -32,6 +32,7 @@ Class CommandLine: AutoLayout, AnsiClass, Class, Public, BeforeFieldInit
     IsBackgroundLaunch(String[]): PrivateScope, Public, Static, HideBySig
     IsRestoreCameraCommand(String[]): PrivateScope, Public, Static, HideBySig
     IsDisableCameraCommand(String[]): PrivateScope, Public, Static, HideBySig
+    IsFailsafeBootCommand(String[]): PrivateScope, Public, Static, HideBySig
     ShouldHideWindow(String[]): PrivateScope, Public, Static, HideBySig
 Interface IUiSink: AutoLayout, AnsiClass, Class, Public, ClassSemanticsMask, Abstract, BeforeFieldInit
   Methods:
