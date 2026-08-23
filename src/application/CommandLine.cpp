@@ -32,14 +32,26 @@ bool CommandLine::IsDisableCameraCommand(array<System::String^>^ args) {
     return false;
 }
 
+bool CommandLine::IsFailsafeBootCommand(array<System::String^>^ args) {
+    for (int i = 0; i < args->Length; i++) {
+        if (args[i]->Equals(L"/failsafe-boot", System::StringComparison::OrdinalIgnoreCase) ||
+            args[i]->Equals(L"--failsafe-boot", System::StringComparison::OrdinalIgnoreCase)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 bool CommandLine::ShouldHideWindow(array<System::String^>^ args) {
     for (int i = 0; i < args->Length; i++) {
         if (args[i] == L"--background" || args[i] == L"/background" ||
             args[i] == L"--disable-camera" || args[i] == L"/disable-camera" ||
             args[i] == L"--enable-camera" || args[i] == L"/enable-camera" ||
-            args[i] == L"/restore-camera" || args[i] == L"/repair-camera") {
+            args[i] == L"/restore-camera" || args[i] == L"/repair-camera" ||
+            args[i] == L"--failsafe-boot" || args[i] == L"/failsafe-boot") {
             return true;
         }
     }
-    return false;
+    // Case-insensitive fallback for failsafe-boot (covers --Failsafe-Boot etc.)
+    return IsFailsafeBootCommand(args);
 }
