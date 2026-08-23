@@ -16,6 +16,7 @@
 #include "../events/WinEventDecoder.h"
 #include "../events/EventCooldown.h"
 #include "../utilities/StringHelpers.h"
+#include "../utilities/PerfTimer.h"
 
 #include <cstdlib>
 #include <msclr\marshal_cppstd.h>
@@ -149,28 +150,42 @@ bool ApplicationController::TryGetTargetCameraInstanceId(std::wstring& targetIns
 }
 
 bool ApplicationController::DisableTargetCameraHardware(bool retryOnFailure) {
+    PerfTimer timer;
     std::wstring targetId;
     if (!TryGetTargetCameraInstanceId(targetId, true)) {
-        ConfigStore::WriteDiagnosticLog(L"DisableTargetCameraHardware_NoTarget", L"Disabled", false);
+        double dur = timer.ElapsedMs();
+        ConfigStore::WriteDiagnosticLog(
+            String::Format(L"DisableTargetCameraHardware_NoTarget | DurationMs={0:F2}", dur),
+            L"Disabled",
+            false
+        );
         return false;
     }
     bool alreadyDisabled = false;
     if (GetCameraHardwareDisabledState(targetId, alreadyDisabled) && alreadyDisabled) {
         m_cameraExpectedDisabled = true;
-        ConfigStore::WriteDiagnosticLogWithDevice(L"DisableTargetCameraHardware_AlreadyDisabled", targetId, L"Disabled", true);
+        double dur = timer.ElapsedMs();
+        ConfigStore::WriteDiagnosticLogWithDevice(
+            String::Format(L"DisableTargetCameraHardware_AlreadyDisabled | DurationMs={0:F2}", dur),
+            targetId,
+            L"Disabled",
+            true
+        );
         return true;
     }
     bool result = SetCameraHardwareStateVerified(targetId, false, retryOnFailure);
     bool verified = VerifyCameraHardwareState(targetId, true);
     m_cameraExpectedDisabled = result;
+    double dur = timer.ElapsedMs();
     ConfigStore::WriteDiagnosticLogWithDevice(
         String::Format(
-            L"DisableTargetCameraHardware_Result | Elevated={0} | IntegrityRid={1} | SetupErr={2} | CfgMgr={3} | Stage={4}",
+            L"DisableTargetCameraHardware_Result | Elevated={0} | IntegrityRid={1} | SetupErr={2} | CfgMgr={3} | Stage={4} | DurationMs={5:F2}",
             IsCurrentProcessElevatedNative() ? L"1" : L"0",
             static_cast<Int32>(GetCurrentProcessIntegrityRid()),
             static_cast<Int32>(InterlockedCompareExchange(&g_lastSetupApiError, 0, 0)),
             static_cast<Int32>(InterlockedCompareExchange(&g_lastConfigManagerResult, 0, 0)),
-            static_cast<Int32>(InterlockedCompareExchange(&g_lastHardwareToggleStage, 0, 0))
+            static_cast<Int32>(InterlockedCompareExchange(&g_lastHardwareToggleStage, 0, 0)),
+            dur
         ),
         targetId,
         L"Disabled",
@@ -180,28 +195,42 @@ bool ApplicationController::DisableTargetCameraHardware(bool retryOnFailure) {
 }
 
 bool ApplicationController::EnableTargetCameraHardware(bool cycleDevice) {
+    PerfTimer timer;
     std::wstring targetId;
     if (!TryGetTargetCameraInstanceId(targetId, true)) {
-        ConfigStore::WriteDiagnosticLog(L"EnableTargetCameraHardware_NoTarget", L"Enabled", false);
+        double dur = timer.ElapsedMs();
+        ConfigStore::WriteDiagnosticLog(
+            String::Format(L"EnableTargetCameraHardware_NoTarget | DurationMs={0:F2}", dur),
+            L"Enabled",
+            false
+        );
         return false;
     }
     bool disabledNow = false;
     if (GetCameraHardwareDisabledState(targetId, disabledNow) && !disabledNow) {
         m_cameraExpectedDisabled = false;
-        ConfigStore::WriteDiagnosticLogWithDevice(L"EnableTargetCameraHardware_AlreadyEnabled", targetId, L"Enabled", true);
+        double dur = timer.ElapsedMs();
+        ConfigStore::WriteDiagnosticLogWithDevice(
+            String::Format(L"EnableTargetCameraHardware_AlreadyEnabled | DurationMs={0:F2}", dur),
+            targetId,
+            L"Enabled",
+            true
+        );
         return true;
     }
     bool result = RecoverCameraHardware(targetId, cycleDevice);
     bool verified = VerifyCameraHardwareState(targetId, false);
     m_cameraExpectedDisabled = !result;
+    double dur = timer.ElapsedMs();
     ConfigStore::WriteDiagnosticLogWithDevice(
         String::Format(
-            L"EnableTargetCameraHardware_Result | Elevated={0} | IntegrityRid={1} | SetupErr={2} | CfgMgr={3} | Stage={4}",
+            L"EnableTargetCameraHardware_Result | Elevated={0} | IntegrityRid={1} | SetupErr={2} | CfgMgr={3} | Stage={4} | DurationMs={5:F2}",
             IsCurrentProcessElevatedNative() ? L"1" : L"0",
             static_cast<Int32>(GetCurrentProcessIntegrityRid()),
             static_cast<Int32>(InterlockedCompareExchange(&g_lastSetupApiError, 0, 0)),
             static_cast<Int32>(InterlockedCompareExchange(&g_lastConfigManagerResult, 0, 0)),
-            static_cast<Int32>(InterlockedCompareExchange(&g_lastHardwareToggleStage, 0, 0))
+            static_cast<Int32>(InterlockedCompareExchange(&g_lastHardwareToggleStage, 0, 0)),
+            dur
         ),
         targetId,
         L"Enabled",
