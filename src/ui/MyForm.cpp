@@ -92,6 +92,14 @@ namespace Windows_Hello_Fix_v2_0 {
             MessageBoxIcon::Information
         );
     }
+    void MyForm::ShowAlreadyRunningMessage() {
+        MessageBox::Show(
+            L"Windows Hello Fix is already running.",
+            L"Windows Hello Fix",
+            MessageBoxButtons::OK,
+            MessageBoxIcon::Information
+        );
+    }
     void MyForm::BringWindowToFrontDelegate() {
         this->Opacity = 1.0;
         this->Show();

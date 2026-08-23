@@ -34,6 +34,7 @@ Class CommandLine: AutoLayout, AnsiClass, Class, Public, BeforeFieldInit
     IsDisableCameraCommand(String[]): PrivateScope, Public, Static, HideBySig
     IsFailsafeBootCommand(String[]): PrivateScope, Public, Static, HideBySig
     ShouldHideWindow(String[]): PrivateScope, Public, Static, HideBySig
+    IsStartupDisabled(): PrivateScope, Public, Static, HideBySig
 Interface IUiSink: AutoLayout, AnsiClass, Class, Public, ClassSemanticsMask, Abstract, BeforeFieldInit
   Methods:
     AddDeviceToDropdown(String): PrivateScope, Public, Virtual, HideBySig, VtableLayoutMask, Abstract
@@ -48,6 +49,7 @@ Interface IUiSink: AutoLayout, AnsiClass, Class, Public, ClassSemanticsMask, Abs
     PromptGhostReset(): PrivateScope, Public, Virtual, HideBySig, VtableLayoutMask, Abstract
     ShowNoDeviceSelectedMessage(): PrivateScope, Public, Virtual, HideBySig, VtableLayoutMask, Abstract
     ShowBackgroundNotice(): PrivateScope, Public, Virtual, HideBySig, VtableLayoutMask, Abstract
+    ShowAlreadyRunningMessage(): PrivateScope, Public, Virtual, HideBySig, VtableLayoutMask, Abstract
 Class ApplicationController: AutoLayout, AnsiClass, Class, Public, BeforeFieldInit
     Void .ctor(IUiSink): PrivateScope, Public, HideBySig, SpecialName, RTSpecialName
   Interfaces:
@@ -130,3 +132,4 @@ Class Windows_Hello_Fix_v2_0.MyForm: AutoLayout, AnsiClass, Class, Public, Befor
     PromptGhostReset(): PrivateScope, Public, Final, Virtual, HideBySig, VtableLayoutMask
     ShowNoDeviceSelectedMessage(): PrivateScope, Public, Final, Virtual, HideBySig, VtableLayoutMask
     ShowBackgroundNotice(): PrivateScope, Public, Final, Virtual, HideBySig, VtableLayoutMask
+    ShowAlreadyRunningMessage(): PrivateScope, Public, Final, Virtual, HideBySig, VtableLayoutMask

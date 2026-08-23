@@ -85,6 +85,7 @@ namespace Windows_Hello_Fix_v2_0 {
         virtual bool PromptGhostReset() sealed;
         virtual void ShowNoDeviceSelectedMessage() sealed;
         virtual void ShowBackgroundNotice() sealed;
+        virtual void ShowAlreadyRunningMessage() sealed;
 
     protected:
         ~MyForm();

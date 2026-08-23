@@ -8,4 +8,5 @@ public:
     static bool IsDisableCameraCommand(array<System::String^>^ args);
     static bool IsFailsafeBootCommand(array<System::String^>^ args);
     static bool ShouldHideWindow(array<System::String^>^ args);
+    static bool IsStartupDisabled();
 };

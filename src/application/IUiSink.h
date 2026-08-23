@@ -14,4 +14,5 @@ public:
     bool PromptGhostReset();
     void ShowNoDeviceSelectedMessage();
     void ShowBackgroundNotice();
+    void ShowAlreadyRunningMessage();
 };

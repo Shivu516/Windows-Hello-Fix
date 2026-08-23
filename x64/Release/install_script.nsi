@@ -108,6 +108,27 @@ Section "Core Files (Required)" SEC01
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\WindowsHelloFix" "DisplayIcon" "$INSTDIR\WindowsHelloFix.ico"
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\WindowsHelloFix" "Publisher" "Shivu516"
 
+  ; --- STARTUP APPS REGISTRATION (Task Manager → Startup) ---
+  ; Make HelloFix appear in Startup Apps, enabled by default, while keeping silent elevated execution via Task Scheduler.
+  ; The Run entry provides visibility and the user's enable/disable toggle; the scheduled task provides elevation.
+  ; Use "Windows Hello Fix" with spaces so Task Manager shows the expected display name.
+  ; Clean stale StartupApproved disabled markers so fresh install is Enabled (check both legacy no-space and new spaced names).
+  DeleteRegValue HKLM "Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run" "WindowsHelloFix"
+  DeleteRegValue HKLM "Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run" "Windows Hello Fix"
+  DeleteRegValue HKLM "Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\StartupFolder" "WindowsHelloFix"
+  DeleteRegValue HKLM "Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\StartupFolder" "Windows Hello Fix"
+  SetRegView default
+  DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run" "WindowsHelloFix"
+  DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run" "Windows Hello Fix"
+  DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\StartupFolder" "WindowsHelloFix"
+  DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\StartupFolder" "Windows Hello Fix"
+  DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "WindowsHelloFix"
+  DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "Windows Hello Fix"
+  SetRegView 64
+  DeleteRegValue HKLM "Software\Microsoft\Windows\CurrentVersion\Run" "WindowsHelloFix"
+  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Run" "Windows Hello Fix" '$WINDIR\System32\schtasks.exe /Run /TN "WindowsHelloFix"'
+  SetRegView default
+
   ; --- SILENT STARTUP ELEVATION FIX ---
   ; Do not set RUNASADMIN compatibility flags. They can force a visible UAC prompt and fight Task Scheduler elevation.
   DeleteRegValue HKLM "Software\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers" "$INSTDIR\Windows_Hello_Fix_v2_0.exe"
@@ -136,13 +157,14 @@ Section "Core Files (Required)" SEC01
   FileWrite $1 "$$trigger = New-ScheduledTaskTrigger -AtLogOn$\r$\n"
   FileWrite $1 "$$principal = New-ScheduledTaskPrincipal -UserId $$user -LogonType Interactive -RunLevel Highest$\r$\n"
   FileWrite $1 "$$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Seconds 0) -Priority 4$\r$\n"
-  FileWrite $1 "Register-ScheduledTask -TaskName 'WindowsHelloFix' -Action $$action -Trigger $$trigger -Principal $$principal -Settings $$settings -Force | Out-Null$\r$\n"
-  FileWrite $1 "function Register-WhfSessionTask([string]$$name, [int]$$stateChange, [string]$$arguments) {$\r$\n"
+  FileWrite $1 "Register-ScheduledTask -TaskName 'WindowsHelloFix' -Description 'Starts Windows Hello Fix in the background at user logon so it can monitor Windows session and power events and manage the configured camera hardware.' -Action $$action -Trigger $$trigger -Principal $$principal -Settings $$settings -Force | Out-Null$\r$\n"
+  FileWrite $1 "function Register-WhfSessionTask([string]$$name, [int]$$stateChange, [string]$$arguments, [string]$$description) {$\r$\n"
   FileWrite $1 "  $$service = New-Object -ComObject 'Schedule.Service'$\r$\n"
   FileWrite $1 "  $$service.Connect()$\r$\n"
   FileWrite $1 "  $$root = $$service.GetFolder('\')$\r$\n"
   FileWrite $1 "  $$task = $$service.NewTask(0)$\r$\n"
   FileWrite $1 "  $$task.RegistrationInfo.Author = $$user$\r$\n"
+  FileWrite $1 "  $$task.RegistrationInfo.Description = $$description$\r$\n"
   FileWrite $1 "  $$task.Principal.UserId = $$user$\r$\n"
   FileWrite $1 "  $$task.Principal.LogonType = 3$\r$\n"
   FileWrite $1 "  $$task.Principal.RunLevel = 1$\r$\n"
@@ -164,11 +186,11 @@ Section "Core Files (Required)" SEC01
   FileWrite $1 "  $$task.Settings.Priority = 4$\r$\n"
   FileWrite $1 "  $$root.RegisterTaskDefinition($$name, $$task, 6, $$null, $$null, 3, $$null) | Out-Null$\r$\n"
   FileWrite $1 "}$\r$\n"
-  FileWrite $1 "Register-WhfSessionTask 'WindowsHelloFix_Lock' 7 '--disable-camera'$\r$\n"
-  FileWrite $1 "Register-WhfSessionTask 'WindowsHelloFix_Unlock' 8 '--enable-camera'$\r$\n"
+  FileWrite $1 "Register-WhfSessionTask 'WindowsHelloFix_Lock' 7 '--disable-camera' 'Handles the Windows session-lock camera state transition for Windows Hello Fix by disabling the target RGB camera.'$\r$\n"
+  FileWrite $1 "Register-WhfSessionTask 'WindowsHelloFix_Unlock' 8 '--enable-camera' 'Handles the Windows session-unlock camera state transition for Windows Hello Fix by re-enabling the target RGB camera.'$\r$\n"
   FileWrite $1 "$$cleanupAction = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument '/c break > $\"$APPDATA\Windows Hello Fix\diagnostic.log$\"'$\r$\n"
   FileWrite $1 "$$cleanupTrigger = New-ScheduledTaskTrigger -Daily -At 00:00$\r$\n"
-  FileWrite $1 "Register-ScheduledTask -TaskName 'WindowsHelloFix_LogCleanup' -Action $$cleanupAction -Trigger $$cleanupTrigger -Principal $$principal -Settings $$settings -Force | Out-Null$\r$\n"
+  FileWrite $1 "Register-ScheduledTask -TaskName 'WindowsHelloFix_LogCleanup' -Description 'Performs daily maintenance of the Windows Hello Fix diagnostic log.' -Action $$cleanupAction -Trigger $$cleanupTrigger -Principal $$principal -Settings $$settings -Force | Out-Null$\r$\n"
   FileClose $1
   nsExec::ExecToLog 'powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "$PLUGINSDIR\RegisterWindowsHelloFixTasks.ps1"'
 
@@ -218,10 +240,21 @@ Section "Uninstall"
   ; Clean registry values
   SetRegView 64
   DeleteRegValue HKLM "Software\Microsoft\Windows\CurrentVersion\Run" "WindowsHelloFix"
+  DeleteRegValue HKLM "Software\Microsoft\Windows\CurrentVersion\Run" "Windows Hello Fix"
+  DeleteRegValue HKLM "Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run" "WindowsHelloFix"
+  DeleteRegValue HKLM "Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run" "Windows Hello Fix"
+  DeleteRegValue HKLM "Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\StartupFolder" "WindowsHelloFix"
+  DeleteRegValue HKLM "Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\StartupFolder" "Windows Hello Fix"
   DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\WindowsHelloFix"
   DeleteRegValue HKLM "Software\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers" "$INSTDIR\Windows_Hello_Fix_v2_0.exe"
   DeleteRegValue HKCU "Software\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers" "$INSTDIR\Windows_Hello_Fix_v2_0.exe"
   SetRegView default
+  DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "WindowsHelloFix"
+  DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "Windows Hello Fix"
+  DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run" "WindowsHelloFix"
+  DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run" "Windows Hello Fix"
+  DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\StartupFolder" "WindowsHelloFix"
+  DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\StartupFolder" "Windows Hello Fix"
 
   ; Clean deployed installation binaries
   Delete "$INSTDIR\Windows_Hello_Fix_v2_0.exe"

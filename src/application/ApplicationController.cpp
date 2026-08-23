@@ -17,6 +17,7 @@
 #include "../events/EventCooldown.h"
 #include "../utilities/StringHelpers.h"
 
+#include <cstdlib>
 #include <msclr\marshal_cppstd.h>
 
 using namespace System;
@@ -459,6 +460,32 @@ bool ApplicationController::Initialize(HWND hwnd, array<String^>^ args) {
         return false;
     }
 
+    // Startup Apps gate: if automatic background startup was disabled in Task Manager → Startup, honor it.
+    // This respects the user's Startup Apps choice even though the elevated task remains registered.
+    if (launchRequestedBackground && CommandLine::IsStartupDisabled()) {
+        ConfigStore::WriteDiagnosticLog(L"Startup_DisabledByStartupApproved", L"NoChange", true);
+        if (IsCurrentProcessElevatedNative()) {
+            // Disable the scheduled task itself so next logon it does not launch at all (primary mechanism).
+            _wsystem(L"schtasks /Change /TN \"WindowsHelloFix\" /DISABLE >nul 2>&1");
+        }
+        Environment::Exit(0);
+        return false;
+    }
+
+    // Ensure the scheduled task is enabled when Startup is enabled (so re-enable via Startup Apps takes effect next logon).
+    // This handles the case where the task was previously disabled via the gate above.
+    if (launchRequestedBackground && IsCurrentProcessElevatedNative() && !CommandLine::IsStartupDisabled()) {
+        _wsystem(L"schtasks /Change /TN \"WindowsHelloFix\" /ENABLE >nul 2>&1");
+    }
+
+    // Run stub gate: the visible Startup Apps Run entry launches the exe with RUNASINVOKER (non-elevated) so it does not prompt UAC.
+    // That stub must not become the daemon; the scheduled task (RunLevel Highest) provides the elevated daemon.
+    if (launchRequestedBackground && !IsCurrentProcessElevatedNative()) {
+        ConfigStore::WriteDiagnosticLog(L"Startup_RunStubNonElevatedExit", L"NoChange", true);
+        Environment::Exit(0);
+        return false;
+    }
+
     bool alreadyExists = false;
     m_hAppMutex = SingleInstance::CreateAppMutex(alreadyExists);
     if (alreadyExists) {
@@ -471,6 +498,9 @@ bool ApplicationController::Initialize(HWND hwnd, array<String^>^ args) {
         bool wakeSignalSent = SingleInstance::TrySignalExistingInstance();
         if (wakeSignalSent) {
             ConfigStore::WriteDiagnosticLog(L"SingleInstance_WakeSignalSent", L"NoChange", true);
+            if (m_sink) {
+                try { m_sink->ShowAlreadyRunningMessage(); } catch (...) {}
+            }
             Environment::Exit(0);
             return false;
         }
