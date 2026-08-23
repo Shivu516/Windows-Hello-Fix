@@ -134,6 +134,54 @@ from code reading, say so and instrument via `diagnostic.log`
 (`%APPDATA%\Windows Hello Fix\diagnostic.log` — catalog in `docs/LOGGING.md`)
 rather than guessing.
 
+## Plan.md Requirement
+
+Every AI agent working on this repository MUST:
+
+1. Read `docs/Plan.md` before making changes.
+2. Treat `docs/Plan.md` as the current active implementation plan.
+3. Update `docs/Plan.md` when:
+   - the active implementation strategy changes
+   - a phase is completed
+   - a major assumption is disproven
+   - a new major blocker is discovered
+4. Keep `docs/Plan.md` focused on CURRENT and UPCOMING work.
+5. Do not use Plan.md as a changelog or historical dump.
+6. Do not rewrite unrelated sections merely for stylistic reasons.
+7. Never modify Plan.md to hide failed experiments or unsuccessful changes.
+8. After completing a planned phase, mark it complete and record the resulting state before starting the next major phase.
+
+### Planning-before-implementation rule
+
+For architectural or behavioral changes:
+
+```
+INVESTIGATE
+→ DOCUMENT
+→ PLAN
+→ REVIEW
+→ IMPLEMENT
+→ BUILD
+→ TEST
+→ COMMIT
+```
+
+Agents must not skip directly from a bug report to a broad implementation.
+
+### Minimal-change rule
+
+An agent must:
+- modify the minimum number of files necessary
+- avoid unrelated refactoring
+- preserve existing working behavior
+- explicitly justify every additional file touched
+
+### Protected-camera rule
+
+The camera hardware path is a protected subsystem.
+
+Agents must NOT modify camera hardware/recovery code merely because it is adjacent to a startup/GUI issue.
+
 ## Quick reference
 
 - Config: `%APPDATA%\Windows Hello Fix\config.txt` (`monitoring=0|1` /
