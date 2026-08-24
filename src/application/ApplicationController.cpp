@@ -424,8 +424,8 @@ bool ApplicationController::Initialize(HWND hwnd, array<String^>^ args) {
             return false;
         }
 
-        // Recovery: strictly enable-only, reuses existing recovery (verification+retry)
-        bool failsafeRecovered = RecoverCameraHardware(failsafeTargetId, true);
+        // Recovery: strictly enable-only, reuses existing recovery (verification+retry) — never disable
+        bool failsafeRecovered = RecoverCameraHardware(failsafeTargetId, false);
         bool failsafeVerified = VerifyCameraHardwareState(failsafeTargetId, false);
         bool failsafeSuccess = failsafeRecovered && failsafeVerified;
 

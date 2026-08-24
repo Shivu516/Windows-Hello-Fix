@@ -182,6 +182,54 @@ The camera hardware path is a protected subsystem.
 
 Agents must NOT modify camera hardware/recovery code merely because it is adjacent to a startup/GUI issue.
 
+## HelloFix Working Philosophy
+
+### Camera Authority
+
+The native C++ background listener is the sole normal authority for automatic lock/unlock camera state changes.
+
+### Lock
+
+Disable the camera only when the Windows session is actually locking.
+
+If already disabled:
+do nothing.
+
+### Unlock
+
+Enable the camera only when the Windows session is actually unlocking.
+
+If already enabled:
+do nothing.
+
+### Task Scheduler
+
+Tasks MUST NOT duplicate ordinary lock/unlock camera operations.
+
+Task Scheduler is reserved for:
+
+- silent elevated application startup
+- log cleanup
+- narrowly scoped startup/sign-in recovery if proven necessary
+
+### Failsafe Rules
+
+A failsafe may enable the camera but must never introduce a competing disable mechanism.
+
+Failsafe execution must not race an already-initialized HelloFix daemon.
+
+### Protected Camera Components
+
+Camera modules must not be modified during unrelated startup/installer/documentation work.
+
+### Minimal Change Principle
+
+Never change working camera logic merely to improve architecture, style, readability, or convenience.
+
+Investigate first.
+
+Then implement the smallest evidence-based change.
+
 ## Quick reference
 
 - Config: `%APPDATA%\Windows Hello Fix\config.txt` (`monitoring=0|1` /

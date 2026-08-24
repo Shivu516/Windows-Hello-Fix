@@ -1,306 +1,157 @@
-# Current Implementation Plan
+# Current Implementation Plan — Forensic Investigation & Reliability Plan
 
-## Status
-
-Current branch:
-`test`
-
-Current baseline:
-Commit `0c0fe6a` ("Added Documentation") — `HEAD -> test`, `origin/test`, `origin/hellofix-restructured`.
-
-Parent chain: `0c0fe6a` → `165ee3b` ("Track installer and release assets") → `5996d4b` ("Complete Re-Organisation") → `98cb1b6` → `ad10d73`. This branch diverged **before** the historical Issue #2 fix (`bcd3cdb`) and the failsafe branch (`7765a06`/`5e45003`), and does not contain them. It is the "last stable post-restructure" baseline the task description refers to.
-
-Working tree:
-Clean (`git status --short` returns empty) at time of plan creation.
-
-Historical stable references:
-- Issue #2 known-good fix: commit `bcd3cdb` ("Restore window opacity on focus", 2026-08-22) on `origin/main` lineage. Single-line change `src/ui/MyForm.cpp:95` `this->Opacity = 1.0;` inside `BringWindowToFrontDelegate`.
-- Startup reference (v2.0 release): tag `v2.0.0` / commit `39ac0ab` ("Windows Hello Fix v2.0 – Complete C++ Rebuild") and the rebuilt installer `5e45003` ("Add x64 Release artifacts and NSIS installer"). Both create no Startup-Apps-visible entry; they intentionally delete `HKLM\…\Run\WindowsHelloFix` and rely solely on Task Scheduler.
-- Additional startup ordering fix: commit `acc37d8` ("Update ApplicationController.cpp", 2026-08-23 00:05) reorders `ApplicationController::Initialize` to check `IsBackgroundLaunch` *before* `TrySignalExistingInstance`. Current `test` branch still has the pre-`acc37d8` order (wake attempt first).
-
-Current known-good functionality (verified as-built on `0c0fe6a`, per `docs/*.md`):
-- Manual GUI launch (no args) → visible centered `FixedDialog`, monitoring respects `config.txt`.
-- `--background` logon daemon via `WindowsHelloFix` scheduled task → hidden (`main.cpp:16-23` Opacity 0 + `SetWindowVisibleForBackground(true)`), monitoring forced ON via `MyForm_Load` `isBackground||autoStart` path, WTS/power notifications registered, wake-listener thread running.
-- Second interactive instance → mutex `Global\WindowsHelloFix_AppMutex` detected, `TrySignalExistingInstance` signals `Global\WindowsHelloFix_WakeupEvent`, listener thread marshals `BringWindowToFrontDelegate` (but without opacity restore on this branch — see Issue #2).
-- Background duplicate (`--background` while daemon runs) → old code wakes the GUI (bug); intended behavior is silent exit (fixed in `acc37d8`).
-- Command workers (`--disable-camera`/`--enable-camera`/`/restore-camera`) → hidden, exit before mutex check, hardware toggles via `CameraHardware`/`CameraRecovery` with verification.
-- Lock/unlock/power/lid paths → `WndProc` → cooldown dedup (1500 ms) → decode → `HandleSessionEvent`/`HandlePowerEvent` → hardware toggle + `diagnostic.log` events.
-
-Known not-working / not-present on this baseline:
-- No entry in Task Manager → Startup apps (by design — see Objective 1).
-- GUI wake shows window chrome but remains fully transparent (Opacity 0) — see Objective 2.
+**Status:** IMPLEMENTED (tasks restructured, see below) — `WindowsHelloFix_Lock` removed, `WindowsHelloFix_Unlock` reworked to `AtLogOn` `PT1M` `--failsafe-boot` enable-only, `README.html` uninstall fixed.  
+**Branch:** `test` at `ce54644` → `c3f1271` + this implementation (single-instance `ShowAlreadyRunningMessage`, startup `IsStartupDisabled`, `PerfTimer` already in `c3f1271`).  
+**Baseline for comparison:** Original v2.0 release `39ac0ab` / tag `v2.0.0` and `5e45003` (x64 Release artifacts) vs current `test` `c3f1271`.
 
 ---
 
-# Objective 1 — Windows Startup Apps
+## 1. Current Camera Architecture — Every Automatic Enable/Disable Source
 
-## Current behavior
+| # | Source | Trigger | Process | Function | Disable? | Enable? | Logs? | Expected? | Notes |
+|---|--------|---------|---------|----------|----------|---------|-------|-----------|-------|
+| 1 | `ToggleCameraHardware` | internal | any | `CameraHardware.cpp:10-15` SetupAPI `DIF_PROPERTYCHANGE` `DICS_DISABLE/ENABLE` | ✓ | ✓ | via `DeviceError` globals | yes | Stage 10-15, `g_last*` |
+| 2 | `ToggleCameraHardwareCfgMgr` | internal | any | `CameraHardware.cpp:20-23` `CM_Disable/Enable_DevNode` + `CM_Reenumerate` | ✓ | ✓ | `g_last*` | yes | Stage 20-23 |
+| 3 | `SetCameraHardwareStateVerified` | internal | any | `CameraRecovery.cpp` 3× `Toggle`→verify, `CfgMgr`→verify, optional re-init 250 ms, final toggle | ✓ | ✓ | no direct | yes | `reinitializeOnMismatch` only for disable |
+| 4 | `RecoverCameraHardware` | internal | any | `CameraRecovery.cpp` `SetVerified(enable)` + optional cycle 350/900/500 sleeps |  | ✓ (cycle) | no | yes | `cycleDevice=true` at startup/restore |
+| 5 | `RestoreAllCameraHardware` | internal | any | `CameraRecovery.cpp` recover every `ScanSystemCameras` |  | ✓ | no | yes | cycle |
+| 6 | `DisableTargetCameraHardware(true)` | `HandleSessionEvent` lock, `HandlePowerEvent` suspend/lid/button, `HandleSystemEnd` shutdown, `ToggleMonitoring` off | daemon UI thread, `ApplicationController.cpp:151-180` | check `TryGetTarget…` → `AlreadyDisabled?` → `SetVerified`→`Verify` | ✓ |  | `Disable…_NoTarget/_AlreadyDisabled/_Result` + `DurationMs` (new) | yes | `retryOnFailure=true` |
+| 7 | `EnableTargetCameraHardware(cycle)` | `HandleSessionEvent` unlock, `HandlePowerEvent` resume, `ToggleMonitoring` off, `MyForm_Load` first enable, shutdown cleanup | daemon UI thread `182-211` | `AlreadyEnabled?` → `Recover`→`Verify` |  | ✓ | `Enable…` logs + `DurationMs` | yes | `cycle=false` for unlock |
+| 8 | `--disable-camera` / `--disable-camera` | Task `WindowsHelloFix_Lock` (StateChange 7) or manual `exe --disable-camera` | short-lived worker `Initialize:453-461` `Command_DisableCamera_Begin/End` → `DisableTarget…`+`Verify` | ✓ |  | `Command_Disable…` + `Disable…_Result` | yes | exits before mutex, can race daemon |
+| 9 | `--enable-camera` / `/restore-camera` / `/repair-camera` / `--failsafe-boot` | Task `WindowsHelloFix_Unlock` (StateChange 8, `Recover` cycle) or manual, installer warm-up, failsafe | short-lived worker `Initialize:355-451` `Command_Enable…`/`Failsafe…` → `Restore…`/`Recover` |  | ✓ | `Command_Enable…` / `Failsafe_…` | yes | `failsafe-boot` checks daemon alive first |
+| 10 | Startup restore | `Initialize` first-instance `509-540` `RestoreConfiguredCameraHardware(true)` + `MyForm_Load` `EnableTarget…(autoStart)` | daemon | `Recover` cycle |  | ✓ | `Startup_Restore…` | yes | 2 enables at boot |
+| 11 | Shutdown restore | `HandleSystemEnd` `WM_QUERY/ENDSESSION` + `Shutdown(true)` + finalizer `!ApplicationController` | daemon UI + finalizer | `Disable` | ✓ |  | `SystemEnd_…` | yes | double/shutdown asymmetry KNOWN_ISSUES #3 |
+| 12 | WTS lock/unlock | `WM_WTSSESSION_CHANGE` `WndProc:293-308` → `EventCooldown` 1500 ms → `WinEventDecoder` 7/8 → `HandleSessionEvent` | daemon | `Disable`/`Enable` | ✓ | ✓ | `SessionEvent_Received`/`Dedup`/`SessionLock_Disable` etc. | yes | per-process cooldown only |
+| 13 | Power/lid/button | `WM_POWERBROADCAST 0x0218` `WndProc:275-292` → `DecodePowerEvent` `PBT_APMSUSPEND/RESUMESUSPEND/RESUMEAUTOMATIC` + `GUID_LIDSWITCH`/`POWER_BUTTON` → `HandlePowerEvent` latch `m_isAlreadyDisabled` | daemon | `Disable`/`Enable` | ✓ | ✓ | `PowerEvent_…` | yes | lid/button treated as suspend regardless of payload |
+| 14 | Manual UI toggle | `MyForm::btnToggle_Click` → `ToggleMonitoring` | daemon | `Enable`/`Disable` | ✓ | ✓ | `SaveConfigState` | yes | user-initiated |
+| 15 | External `pnputil` | not used | – | – | – | – | – | no | v1.0 only, removed in v2.0 |
 
-How HelloFix currently starts with Windows on `test` / `0c0fe6a`:
-
-- **Scheduled Task `WindowsHelloFix` exists** (`x64/Release/install_script.nsi:135-139`): `Register-ScheduledTask -TaskName 'WindowsHelloFix' -Action ("$INSTDIR\Windows_Hello_Fix_v2_0.exe" --background, WD=$INSTDIR) -Trigger AtLogOn -Principal (UserId=installing user, LogonType Interactive, RunLevel Highest) -Settings (AllowStartIfOnBatteries, DontStopIfGoingOnBatteries, StartWhenAvailable, MultipleInstances IgnoreNew, ExecutionTimeLimit 0, Priority 4)`. Created after `schtasks /Delete /TN WindowsHelloFix /F` stale wipe. Uninstaller deletes it (`schtasks /Delete /TN WindowsHelloFix /F`).
-- **Failsafe session tasks** `WindowsHelloFix_Lock` / `_Unlock` (StateChange 7/8, `--disable-camera`/`--enable-camera`, COM `Schedule.Service` type 11, Hidden=true, ExecutionTimeLimit PT5M) and **LogCleanup** (`cmd.exe /c break > "$APPDATA\Windows Hello Fix\diagnostic.log"` daily 00:00) also exist. None are Startup-Apps-relevant.
-- **Registry Run entry does NOT exist.** Installer explicitly deletes it (`DeleteRegValue HKLM Software\Microsoft\Windows\CurrentVersion\Run WindowsHelloFix`, `SetRegView 64`, `src` lines 105, 220). No `HKCU` Run entry either. No documentation or code creates one elsewhere.
-- **Startup-folder shortcut does NOT exist.** `INSTALLER.md §3` confirms only Start Menu `.lnk` (no args) and optional Desktop `.lnk` are created; no `Startup` folder entry.
-- **StartupApproved is not involved.** No code touches `HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run` or `…\StartupApproved\StartupFolder`. Task Manager writes there when user toggles a Startup app, but installer never seeds it.
-- **Task Manager → Startup apps shows nothing.** Verified by architecture docs: `docs/STARTUP.md §2 #10` lists Run/Startup-folder as "Not used", `docs/INSTALLER.md §4`, `docs/TASK_SCHEDULER.md §1.1`. Elevation is `requireAdministrator` (`app.manifest` + `UACExecutionLevel`), so every launch is elevated; the daemon task achieves this silently via RunLevel Highest. Plain Registry Run would trigger a UAC prompt on logon.
-- **What v2.0 release did differently:** Nothing relevant to startup visibility. `39ac0ab` introduced the same `RequireAdministrator` + Task Scheduler model; `Release/install_script.nsi` at that tag also deleted the Run value and created the same four tasks (minus later `WindowsHelloFix_Failsafe`). The current NSIS script (`x64/Release/install_script.nsi` on `test`) is functionally identical to that historical working installer except for minor `.gitignore` tracking (`165ee3b`) and the absence of the later failsafe task introduced in `7765a06` on `main` (which `test` deliberately does not contain per rollback `8403f8a`). In short: **current installer does not differ materially from historical v2.0 installer regarding Startup Apps** — neither ever created a visible entry.
-
-## Desired behavior
-
-- HelloFix appears in `Task Manager → Startup apps` (and `Settings → Apps → Startup`) as a distinct entry (e.g., "Windows Hello Fix v2.0" / "WindowsHelloFix").
-- Enabled by default after fresh install.
-- Starts automatically with Windows, silent/background (no window, no taskbar icon, no activation, `Opacity=0`, `ShowInTaskbar=false`, `Minimized` via `main.cpp:18-23` and `SetWindowVisibleForBackground(true)`).
-- User can disable automatic startup through the normal Startup Apps UI toggle; disabling must be honored (daemon does not start on next logon).
-- Disabling startup must not corrupt monitoring behavior: manual GUI launch must still work, saved `config.txt` (`monitoring=0|1`, `device=<id>`) must remain valid, lock/unlock tasks remain functional if user re-enables, no orphaned mutex/event.
-- Startup registration removed cleanly on uninstall (delete Run value + delete any tasks that were added for visibility). Task names must remain stable (`WindowsHelloFix*`) so uninstall `schtasks /Delete` continues to work.
-- No duplicate startup mechanisms unless there is a documented reason and deduplication via `Global\WindowsHelloFix_AppMutex` + silent-exit path is explicitly justified and tested.
-
-## Investigation findings
-
-1. **Single source of autostart today is Task Scheduler.** `docs/STARTUP.md §2 #3`, `docs/TASK_SCHEDULER.md §1.1`, `x64/Release/install_script.nsi:130-173`. The task runs `Windows_Hello_Fix_v2_0.exe --background` at logon as the installing user, Interactive, Highest. `main.cpp:16` → `CommandLine::ShouldHideWindow` (case-sensitive `==`) hides; then `ApplicationController::Initialize` logs `Startup_Context | BackgroundArg=1` and forces monitoring ON if a device is selected. Uninstaller removes the task.
-
-2. **Registry Run is the only mechanism that reliably appears in Startup Apps without extra bridging.** Windows enumerates `HKLM\Software\Microsoft\Windows\CurrentVersion\Run` and `HKCU\…\Run`, plus `Startup` folder `.lnk`s, into Startup apps. Task Scheduler tasks appear only under narrow conditions (some builds show tasks with `AtLogOn` + `Interactive` + non-Hidden, but our daemon task with identical attributes still does not appear — confirmed by the bug report). Our installer sets `Hidden=false` for the daemon task (default), yet the entry is absent; `WindowsHelloFix_LogCleanup` uses `cmd.exe` with `$APPDATA` syntax that `cmd.exe` does not expand (see `TASK_SCHEDULER.md §1.4` defect) — unrelated but indicates fragile task authoring.
-
-3. **Elevation vs. UAC is the core tension.** Manifest `RequireAdministrator` means any direct `Run`-key launch will prompt UAC at logon unless the user has disabled UAC or the exe is auto-elevated. Task Scheduler with `RunLevel Highest` avoids the prompt (the token is elevated by the scheduler). This is why the original author chose Task Scheduler and explicitly deleted Run values (`INSTALLER.md §4` rationale: "Do not set RUNASADMIN flags… they fight Task Scheduler elevation"). Re-introducing a Run entry naively would re-introduce a visible UAC prompt, violating "silent/background".
-
-4. **StartupApproved is the toggle back-end.** When user flips a Startup app off, Task Manager writes `HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run\<Name>` (`02 00 00 00 …` = enabled, `03 00 00 00 …` = disabled) or `…\StartupApproved\StartupFolder` for folder shortcuts. Our code never reads this key, so even if we add a Run entry, the daemon task would still start if we keep both mechanisms, defeating the toggle.
-
-5. **Duplicate-launch risk is already mitigated by single-instance mutex, but ordering matters.** `ApplicationController::Initialize` at `0c0fe6a` ( `src/application/ApplicationController.cpp:315-357` ) checks `TrySignalExistingInstance()` *before* `IsBackgroundLaunch`. A background second instance therefore wakes the GUI instead of silently exiting. `acc37d8` (present only on `origin/main`, not on `test`) reverses the order: background → `SingleInstance_BackgroundSilentExit` first. Any design with two autostart mechanisms (e.g., Run + Task) will fire two logon processes concurrently; without the `acc37d8` order they will wake the UI during boot.
-
-6. **Case-sensitivity mismatch** between `CommandLine::IsBackgroundLaunch` (OrdinalIgnoreCase) and `ShouldHideWindow` (case-sensitive `==`) means a mixed-case `--Background` would start background monitoring but leave the window visible (`docs/KNOWN_ISSUES.md #4`). Not directly startup-visible but affects background invisibility guarantee.
-
-7. **Historical v2.0 installer (`39ac0ab` → `5e45003`) never attempted Startup Apps visibility.** Diffing `Release/install_script.nsi` at `39ac0ab` vs `x64/Release/install_script.nsi` at `0c0fe6a` shows identical Run-deletion + task-creation logic; the only delta in later `origin/main` is the addition of `WindowsHelloFix_Failsafe` (`7765a06`) and `Description` field — neither affects Startup Apps presence. Thus the bug is not a regression from a previously working Startup Apps entry; it is a missing feature that the Task-Scheduler-only design never satisfied.
-
-8. **Uninstall already cleans tasks and Run value, but misses StartupApproved.** Current uninstall deletes `HKLM\…\Run\WindowsHelloFix` but not `HKCU\…\Explorer\StartupApproved\Run\WindowsHelloFix`. If we add a Run entry, uninstall must delete both the value and its StartupApproved counterpart, plus any Startup-folder `.lnk`, plus the task.
-
-## Proposed implementation
-
-Smallest safe architecture that achieves the goal while preserving `RequireAdministrator`:
-
-Compare mechanisms:
-
-| Mechanism | Elevation / UAC | Visibility in Startup Apps | Enable/Disable behavior | Duplicate-launch risk | Background behavior | Uninstall behavior | Compatibility with single-instance |
-|---|---|---|---|---|---|
-| **Task Scheduler only** (status quo) | Silent elevation via RunLevel Highest, no UAC prompt | **Not visible** (current bug) | User cannot control via Startup UI; must use Task Scheduler GUI | Single task, no duplicate | Hidden via `--background` → `main.cpp` Opacity 0; works | `schtasks /Delete` clean | Mutex secondary |
-| **Registry Run only** (`HKLM` or `HKCU` `…\Run\WindowsHelloFix` = `"exe" --background`) | Triggers UAC prompt at logon due to `RequireAdministrator` → violates "silent" unless manifest changed | **Visible**, toggle writes StartupApproved | Correct toggle semantics | Single entry, no duplicate | Same `--background` hiding, but UAC prompt flashes | `DeleteRegValue` clean if StartupApproved also deleted | Mutex single |
-| **Startup folder .lnk only** (`%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\Windows Hello Fix.lnk` → `exe --background`) | Same UAC prompt issue as Run | **Visible** | Toggle via StartupApproved\StartupFolder, user can also delete file | Single entry, but file can be deleted manually | Same hiding | Delete file + StartupApproved | Mutex single |
-| **Hybrid: Run (visibility stub) + Task Scheduler (elevated executor) with StartupApproved gate** | Silent: Task provides elevation, Run provides visibility; no UAC if only task actually launches | **Visible** (Run entry) | Disable Run via Startup UI → task checks `StartupApproved\Run\WindowsHelloFix` before proceeding and silently exits if disabled — toggle honored | Two logon processes race → mitigated by mutex + `acc37d8` background-silent-exit order; second exits silently | Both use `--background` so either path hides | Must delete Run + StartupApproved + task | Requires fixing `acc37d8` order first; otherwise background duplicate wakes GUI |
-
-**Recommendation: Hybrid "visibility Run + elevated Task" with explicit StartupApproved gating (single recommended approach).**
-
-Rationale:
-- A pure Run solution fails the "silent/background" requirement because `RequireAdministrator` forces a UAC prompt at every logon. Changing the manifest to `asInvoker` would be a protected-architecture violation (camera toggles need elevation) and would require a major privilege-separation redesign — out of scope for the minimal fix.
-- A pure Task Scheduler solution cannot be made reliably visible across Windows 10/11 builds without undocumented task attributes; investigation shows even correctly formed `AtLogOn` tasks sometimes remain hidden.
-- A Startup-folder solution has strictly worse properties than Run (user-deletable file, same UAC issue, extra shell folder handling).
-- The hybrid approach keeps the existing proven silent-elevation path (Task Scheduler) unchanged for actual execution, while adding a minimal Run entry whose sole purpose is to surface in Startup Apps and to act as the user's enable/disable switch. The daemon (both the Task-launched process and the Run-launched process, if both fire) checks `HKCU\…\Explorer\StartupApproved\Run\WindowsHelloFix` (and optionally `HKLM` equivalent) at the top of `ApplicationController::Initialize` — if the value indicates disabled (`03…`), the process logs `Startup_DisabledByStartupApproved` and exits without starting monitoring (or starts without autostart). This honors the toggle without requiring the Task Scheduler API to expose a disabled state.
-- Duplicate risk is documented and already mitigated: the second logon process hits `CreateAppMutex` → `alreadyExists` → `IsBackgroundLaunch` → silent exit (after applying `acc37d8` ordering). No GUI wake during boot.
-- Alternative considered and rejected: "Task Scheduler task description/startup trigger tweaks to force visibility" — investigated via diff of `5e45003` vs HEAD and `7765a06` addition of `Description`; no evidence that description affects Startup enumeration, and relying on undocumented Task Manager enumeration heuristics is riskier than the well-documented Run+StartupApproved contract.
-
-Implementation sketch (for future work, not now):
-1. Installer: `WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "WindowsHelloFix" '"$INSTDIR\Windows_Hello_Fix_v2_0.exe" --background'` (or `HKLM` with `SetRegView 64` if machine-wide desired; decision below). Also seed `StartupApproved` as enabled (`02 00…`) via `WriteRegBinary` or let Task Manager default to enabled — but document that fresh install must be ENABLED, so installer must ensure no disabled residual remains (delete any prior disabled value before write). Create task as today.
-2. Uninstaller: `DeleteRegValue HKCU …\Run\WindowsHelloFix`, `DeleteRegValue HKCU …\Explorer\StartupApproved\Run\WindowsHelloFix` (and `HKLM` variants if used), plus task deletes.
-3. Runtime: At top of `ApplicationController::Initialize` (after `Startup_Context` log, before camera work), query `StartupApproved`; if disabled and `IsBackgroundLaunch` true, log and `Exit(0)` (or skip autostart). Interactive manual launch (`--background` absent) bypasses the check so user can still open GUI when startup is disabled.
-4. Apply `acc37d8` ordering fix so background duplicate never wakes GUI.
-5. Fix `CommandLine::ShouldHideWindow` to be case-insensitive (align with `IsBackgroundLaunch`) or delegate to it, to avoid visible background window on mixed-case.
-
-Choice of hive: Prefer `HKCU` (per-user) because task is per-installing-user (`[WindowsIdentity]::GetCurrent().Name`) and Startup Apps per-user toggles are expected; `HKLM` would require admin to disable and would appear for all users. If machine-wide install is required, `HKLM` + `StartupApproved` under `HKLM\…\Explorer\StartupApproved` (rare) could be used, but `HKCU` is safer minimal change. Open question records this decision point for review.
-
-## Files expected to change later
-
-- `x64/Release/install_script.nsi` — add Run entry creation (and StartupApproved seeding) in `SEC01`, and add corresponding deletes in `Section "Uninstall"`; preserve task registration order (taskkill → deploy → `/restore-camera` → task creation → warm-up).
-- `src/application/CommandLine.h` / `src/application/CommandLine.cpp` — optionally centralize StartupApproved check or fix `ShouldHideWindow` case-insensitivity (align with `IsBackgroundLaunch`); add helper `IsStartupApprovedDisabled()` if runtime gate lives there.
-- `src/application/ApplicationController.cpp` (and `.h` if new helper) — add early gate: if background launch && `IsStartupApprovedDisabled()` → log `Startup_DisabledByStartupApproved` and `Exit(0)`; apply `acc37d8` ordering fix (background check before wake signal) if not already merged.
-- `main.cpp` — only if `ShouldHideWindow` is made case-insensitive via delegation; otherwise no change.
-- Docs: `docs/STARTUP.md`, `docs/INSTALLER.md`, `docs/TASK_SCHEDULER.md` to document new Run entry and StartupApproved contract (documentation-only, not functional).
-
-No changes to camera, config, event, or UI modules for this objective.
-
-## Validation plan
-
-1. **Fresh install test:** On clean VM, run `Windows_Hello_Fix_Setup.exe`. Verify in Registry `HKCU\…\Run\WindowsHelloFix` (or `HKLM`) value equals `"<InstallDir>\Windows_Hello_Fix_v2_0.exe" --background`. Verify Task Manager → Startup apps shows "Windows Hello Fix" Enabled, and `Settings → Apps → Startup` matches.
-2. **Silent logon test:** Reboot / log off/on. No UAC prompt, no visible window, no taskbar icon. `%APPDATA%\Windows Hello Fix\diagnostic.log` shows `Startup_Context | BackgroundArg=1` and `WTSRegisterSessionNotification_Success` once. Process `Windows_Hello_Fix_v2_0.exe` running, `Global\WindowsHelloFix_AppMutex` held.
-3. **Disable via Startup UI test:** In Task Manager → Startup, disable Windows Hello Fix. Reboot. Verify process does NOT start automatically (or starts and immediately exits with `Startup_DisabledByStartupApproved` in log). Verify `StartupApproved\Run\WindowsHelloFix` is `03…`.
-4. **Re-enable test:** Re-enable via Startup UI, reboot, verify daemon starts again silently.
-5. **Manual launch while disabled:** With startup disabled, double-click Start Menu shortcut (no args) → GUI visible, monitoring respects config, mutex wake path works.
-6. **Duplicate mechanism test:** If hybrid retained, trigger both Run and Task at logon (normal boot) — verify only one daemon survives (`SingleInstance_BackgroundSilentExit` or `WakeSignalSent` not fired during boot), no GUI wake, `diagnostic.log` shows one `BackgroundSilentExit` or no wake.
-7. **Uninstall test:** Run `Uninstall.exe`. Verify Run value deleted, StartupApproved value deleted, both `WindowsHelloFix` tasks deleted (`schtasks /Query /TN WindowsHelloFix` fails), Start Menu folder removed, no residual `AppData` config/log if user elected full removal.
-8. **Elevation test:** With UAC at default, logon with new Run entry present — confirm no UAC prompt (task path silent). If pure Run were chosen, expect prompt and fail.
-9. **Lock/unlock regression:** After each of the above, lock workstation, verify `SessionLock_Disable` / `SessionUnlock_Enable` still fire via daemon (and/or failsafe tasks if retained).
+**Key finding:** For one `LOCK`, two actors can touch hardware: native listener (6) *and* `WindowsHelloFix_Lock` task (8) concurrently (command check before mutex). Same for `UNLOCK` (7 vs 9). Installer warm-up (9) runs twice per install/uninstall.
 
 ---
 
-# Objective 2 — Issue #2 GUI Auto-Launch / GUI Visibility
+## 2. Task Scheduler Analysis — Exact Responsibility
 
-## Current behavior
+| Task | Trigger | Delay | Executable | Arguments | WD | Principal | RunLevel | Hidden | Multiple | ExecLimit | Camera Effect | New Process? | Races daemon? | Runs if daemon dead? | Logs |
+|------|---------|-------|------------|-----------|----|-----------|----------|--------|----------|-----------|---------------|--------------|---------------|----------------------|------|
+| `WindowsHelloFix` | `AtLogOn` (`New-ScheduledTaskTrigger -AtLogOn`, no UserId) | 0 | `Windows_Hello_Fix_v2_0.exe` | `--background` | `$INSTDIR` | installing user, `LogonType Interactive (3)`, `Highest (1)` | Highest | `false` (PS default) | `IgnoreNew` | `0` (unlimited) | **Yes** – becomes resident daemon, enables camera at `MyForm_Load`, then owns WTS/power | No (is daemon) | – | No (is daemon) | `Startup_Context`, `Startup_Restore…`, `WTS…Success` |
+| `WindowsHelloFix_Lock` | COM `Trigger.Create(11)` `StateChange=7` lock, `UserId` installing user, `Enabled true` | 0 | same exe | `--disable-camera` | `$INSTDIR` | same `Interactive Highest` | Highest | `true` | `2` (IgnoreNew) | `PT5M` | **Yes** – `DisableTarget…` + `Verify` in short worker | Yes, short | **Yes** – concurrent with daemon's lock handler (per-process cooldown) | Yes | `Command_Disable…` + `Disable…_Result` + `DurationMs` |
+| `WindowsHelloFix_Unlock` | `StateChange=8` unlock | 0 | same | `--enable-camera` (`Restore… true` cycle) | same | same | Highest | `true` | `2` | `PT5M` | **Yes** – `Recover` cycle | Yes | **Yes** – concurrent | Yes | `Command_Enable…` + `Enable…_Result` + `DurationMs` |
+| `WindowsHelloFix_LogCleanup` | `Daily 00:00` (`New-ScheduledTaskTrigger -Daily`) | 0 | `cmd.exe` | `/c break > "…diagnostic.log"` | N/A | same `Interactive Highest` | Highest | `false` | `IgnoreNew` | `0` | **No** | Yes, separate `cmd` | No (log only) | Yes (when daemon dead, still truncates) | none (intent `break`) |
 
-Complete GUI lifecycle on `test` / `0c0fe6a`:
-
-**`main()` (`main.cpp:9-27`):**
-- `Application::EnableVisualStyles()`, `SetCompatibleTextRenderingDefault(false)`.
-- Construct `MyForm form` → `MyForm::MyForm` creates `ApplicationController(this)` and `InitializeComponent` (`FixedDialog`, no max/min, 430×240, `CenterScreen`, text "Windows Hello Fix v2.0", default `Opacity=1.0`/`ShowInTaskbar=true`/`WindowState=Normal`).
-- `bool runHidden = CommandLine::ShouldHideWindow(args)` — true for case-sensitive `"/background"`, `"--background"`, `"/disable-camera"`, `"--disable-camera"`, `"/enable-camera"`, `"--enable-camera"`, `"/restore-camera"`, `"/repair-camera"`. Note mismatch with `IsBackgroundLaunch` (case-insensitive).
-- If `runHidden`: `form.Opacity = 0; form.ShowInTaskbar = false; form.WindowState = Minimized;`. No code in `main.cpp` ever restores visibility.
-- `Application::Run(%form)` — pumps messages; `Load` event fires next.
-
-**`MyForm::MyForm_Load` (`src/ui/MyForm.cpp:168-232`) → `ApplicationController::Initialize` (`src/application/ApplicationController.cpp:279-385`):**
-- Logs `Startup_Context`.
-- Command modes (`IsRestoreCameraCommand` / `IsDisableCameraCommand`) → camera work → `Environment::Exit(0)` before mutex.
-- Single-instance: `CreateAppMutex` (`Global\WindowsHelloFix_AppMutex`, initial owner TRUE, `SingleInstance.cpp:??`). If `alreadyExists`:
-  - CURRENT (`0c0fe6a`) order: `TrySignalExistingInstance` first → if success `SingleInstance_WakeSignalSent` → `Exit(0)`; else if `IsBackgroundLaunch` → `SingleInstance_BackgroundWakeEventMissing` → `Exit(0)`; else `PromptGhostReset` dialog → possible `KillHelloFixProcess` + `Application::Restart()`.
-  - Intended (`acc37d8`) order: background check first → `SingleInstance_BackgroundSilentExit` → exit, never waking GUI.
-- First instance continues: `CreateWakeupEvent` (`Global\WindowsHelloFix_WakeupEvent`, auto-reset), `RestoreConfiguredCameraHardware(true)` (cycle), `RegisterPowerNotifications` (lid+button), start `ListenForWakeupSignal` background thread (`IsBackground=true`, `WaitForSingleObject` INFINITE), `RegisterSessionNotificationWithRetry` (6×500 ms).
-- Back in `MyForm_Load`: scan `ScanSystemCameras()`, fill dropdown, pick saved→`MI_00`→first, `EnsureConfigFileExists`, `EnableTargetCameraHardware(autoStart)` ("first enable to prevent bricking"), then if `(isBackground || autoStart) && selected != -1` → `IsMonitoring=true`, `EnableTargetCameraHardware(false)`, UI `Service Running`, **if `isBackground` → `SetWindowVisibleForBackground(true)`** (`Visible=false`, `ShowInTaskbar=false`, `Minimized`).
-
-**Runtime wake path:**
-- Second interactive instance signals `Global\WindowsHelloFix_WakeupEvent` via `SingleInstance::TrySignalExistingInstance` (`SetEvent`).
-- Daemon's listener thread (`ApplicationController::ListenForWakeupSignal:262-271`, `WaitForSingleObject`) wakes → `m_sink->BringWindowToFront()` → `MyForm::BringWindowToFront:68-74` → if `InvokeRequired` marshals via `Invoke(MethodInvoker(BringWindowToFrontDelegate))` else direct.
-- **`BringWindowToFrontDelegate` (`src/ui/MyForm.cpp:95-103` on `0c0fe6a`):** `Show(); Visible=true; ShowInTaskbar=true; WindowState=Normal; BringToFront(); Activate(); Refresh();` — **no Opacity restore.**
-- **`SetWindowVisibleForBackground(true)` (`src/ui/MyForm.cpp:61-67`):** `Visible=false; ShowInTaskbar=false; WindowState=Minimized;` — called from `MyForm_Load` when background autostart happened. With `false` it does nothing.
-- **`MyForm_FormClosing` (`src/ui/MyForm.cpp:234-244`):** On `UserClosing`, `e->Cancel=true`, `Hide()`, `ShowInTaskbar=false`, one-time `ShowBackgroundNotice()`. App never exits via X.
-- **`main.cpp` hide block** is the only other hide site.
-
-**Inventory of every location that can affect visibility:**
-
-| Location | File:Line | Effect |
-|---|---|---|
-| `main()` hide block | `main.cpp:18-23` | hide (Opacity 0, no taskbar, Minimized) if `ShouldHideWindow` |
-| `BringWindowToFrontDelegate` | `src/ui/MyForm.cpp:95-103` | **show** (but missing Opacity on this branch) — the ONLY un-hide |
-| `BringWindowToFront` | `src/ui/MyForm.cpp:68-74` | show (marshals to delegate) |
-| `IUiSink::BringWindowToFront` | `src/application/IUiSink.h` | interface for controller |
-| `SetWindowVisibleForBackground(true)` | `src/ui/MyForm.cpp:61-67` | hide (Visible false, no taskbar, Minimized) |
-| `MyForm_FormClosing` | `src/ui/MyForm.cpp:234-244` | hide (Hide, no taskbar, cancel close) |
-| `PromptGhostReset` dialog | `src/ui/MyForm.cpp:75-83` | modal dialog can appear even when form is opacity-hidden |
-
-There is no `SetVisibleCore` override and no tray icon (`docs/GUI.md §1`). If the wake delegate fails to restore opacity, the daemon stays invisible and unreachable except via `taskkill`.
-
-## Historical investigation
-
-Git history analysis (`git log --all --graph`, `git show bcd3cdb`, `git diff 5996d4b..bcd3cdb`):
-
-- **Which commit first fixed Issue #2:** `bcd3cdb` ("Restore window opacity on focus", 2026-08-22 09:38 +0530, author Shivu516) — the only commit touching `src/ui/MyForm.cpp` between `5996d4b` (Complete Re-Organisation) and the later docs/failsafe commits. Message: "Ensure the main form is fully visible when brought to the front by resetting its opacity before showing and activating it. This prevents the window from appearing transparent or hidden when re-enabled from the tray/taskbar flow."
-
-- **Exact code change ( `git show bcd3cdb` ):**
-  ```diff
-   void MyForm::BringWindowToFrontDelegate() {
-  +    this->Opacity = 1.0;
-       this->Show();
-       this->Visible = true;
-       this->ShowInTaskbar = true;
-       this->WindowState = FormWindowState::Normal;
-       this->BringToFront();
-       this->Activate();
-       this->Refresh();
-   }
-  ```
-  One line added at top of delegate. Pre-`bcd3cdb` delegate (`5996d4b:src/ui/MyForm.cpp:95-103`) lacked opacity restore; post-`bcd3cdb` (`bcd3cdb:src/ui/MyForm.cpp:95-104`) includes it. `main.cpp` hide block was identical before and after ( `form.Opacity = 0` when `ShouldHideWindow`).
-
-- **Why it worked:** `main.cpp` sets `Opacity=0` for any background/command launch. The daemon therefore starts with a fully transparent window (but with `WndProc` alive). The only path to make it visible again is `BringWindowToFrontDelegate` via the wake event. Without resetting `Opacity`, the delegate sets `Visible`, `ShowInTaskbar`, `WindowState` and calls `Show/BringToFront/Activate`, but WinForms still composites the window at 0% opacity — it is logically visible yet pixel-invisible. Adding `Opacity=1.0` restores the property to opaque before the other calls, so the window becomes actually seen. This matches WinForms semantics where `Opacity` is independent of `Visible`.
-
-- **Whether the fix exists on current branch:** No. `test` at `0c0fe6a` derives via `165ee3b` → `5996d4b`, bypassing `bcd3cdb`. `src/ui/MyForm.cpp:95-103` on HEAD shows no `Opacity = 1.0;` line (verified via `Compare-Object` between `origin/main:src/ui/MyForm.cpp` and `HEAD:src/ui/MyForm.cpp` — the line exists only on `origin/main`). `origin/main` (merge `497d1f6`) does contain `bcd3cdb`.
-
-- **Whether subsequent restructuring changed the relevant path:** The file moved from monolithic `MyForm.h` (~1300 lines, `39ac0ab`) to `src/ui/MyForm.cpp` in `5996d4b`, but the visibility logic was preserved verbatim except for the missing opacity line. `main.cpp` hide block and `SetWindowVisibleForBackground` were unchanged across `5996d4b` → `bcd3cdb` → `0c0fe6a`. The only other visibility-relevant change in the lineage is `acc37d8` reordering the background check in `ApplicationController::Initialize` (present on `origin/main`, absent on `test`), which prevents a background duplicate from waking the GUI at all — a distinct but related behavior.
-
-- **Related change not in `bcd3cdb`:** `acc37d8` ("Update ApplicationController.cpp") swaps the order so `IsBackgroundLaunch` is tested before `TrySignalExistingInstance`. Without this, a `--background` second instance (e.g., Task + Run both firing at logon, or logon daemon vs. manual `--background` test) would incorrectly signal the wake event instead of silently exiting, causing an unwanted GUI pop at boot.
-
-## Root cause hypothesis
-
-Ranked, evidence-graded (do not call "confirmed" without runtime proof):
-
-1. **Most likely — Missing `Opacity = 1.0` in `BringWindowToFrontDelegate` (`src/ui/MyForm.cpp:95` on HEAD).** Evidence: deterministic code reading, `main.cpp` sets `Opacity=0` and never restores; delegate is the sole un-hide; historical one-line fix in `bcd3cdb` directly restored visibility and exists on `origin/main` but not on `test`. Impact: every wake (second instance double-click) leaves window transparent. Confidence: high, but requires manual second-instance test to confirm pixel-invisibility vs. handle error.
-
-2. **Second — Background duplicate incorrectly wakes GUI due to inverted order in `ApplicationController::Initialize` (`src/application/ApplicationController.cpp:315-328` on HEAD).** Evidence: `acc37d8` diff proves the order was intentionally fixed; HEAD has `TrySignalExistingInstance` before `IsBackgroundLaunch`, while fixed branch has the reverse. Impact: at logon with two autostart mechanisms (or during testing with `exe --background` while daemon runs), the background instance wakes the hidden daemon instead of silently exiting — violates "automatic/background startup remains completely invisible" and could surface GUI at boot. Confidence: high for boot-time pop, but distinct from interactive wake transparency.
-
-3. **Contributory — `CommandLine::ShouldHideWindow` case-sensitive (`src/application/CommandLine.cpp:35-45`) vs. `IsBackgroundLaunch` case-insensitive.** Evidence: `docs/KNOWN_ISSUES.md #4` and code comparison (`args[i] == L"--background"` vs `Equals(..., OrdinalIgnoreCase)`). Impact: mixed-case `--Background` would enter background monitoring (`IsBackgroundLaunch` true) but leave window visible ( `ShouldHideWindow` false). Rare, but violates auto-start invisibility guarantee.
-
-4. **Less likely — `SetWindowVisibleForBackground` called *after* delegate restores visibility could re-hide.** Evidence: call site `MyForm_Load:222-224` only on background autostart (`isBackground` true) before any wake; no later re-hide path except `FormClosing`. Unlikely to affect wake.
-
-5. **Not a cause — Other show/activate locations.** `BringWindowToFront` marshaling, `IUiSink`, and `ShowInTaskbar` are correctly wired; `WndProc` does not touch visibility. No alternative un-hide exists to compensate.
-
-## Proposed implementation
-
-Smallest future fix, no camera/monitoring change:
-
-- **Restore `this->Opacity = 1.0;` as the first statement of `MyForm::BringWindowToFrontDelegate()` (`src/ui/MyForm.cpp:95`).** Exact line from `bcd3cdb`. This is the minimal semantic fix: it reverses the `main.cpp` `Opacity=0` that is the only reason a woken daemon remains invisible. No other property needs change — `Show/Visible/ShowInTaskbar/WindowState/BringToFront/Activate/Refresh` already present.
-
-- **Apply `acc37d8` ordering: in `ApplicationController::Initialize` (`src/application/ApplicationController.cpp:315-357`), move the `if (launchRequestedBackground)` silent-exit check *before* `TrySignalExistingInstance`.** So background second instances never signal the wake event. Log event becomes `SingleInstance_BackgroundSilentExit` instead of `SingleInstance_WakeSignalSent` for background duplicates. This preserves "background duplicate: no GUI wake" and is required if a hybrid Run+Task startup is used.
-
-- **Optionally align `ShouldHideWindow` with `IsBackgroundLaunch` (make it case-insensitive or delegate to `IsBackgroundLaunch` plus additional `IsRestoreCameraCommand`/`IsDisableCameraCommand` checks).** One-line change to prevent mixed-case background launch from leaving window visible. Low risk, but can be deferred if strict minimalism required.
-
-No changes to `WndProc`, `NotificationRegistrar`, camera modules, config, or Task Scheduler for this objective.
-
-Intended future behavior:
-- Automatic launch (`--background` via Task Scheduler or Run): Opacity 0, no taskbar, Minimized, never activates, `SetWindowVisibleForBackground(true)` hides. No popup.
-- Manual launch (no args): Opacity default 1, taskbar ON, Normal, visible. If daemon exists, signals wake event; daemon delegate sets `Opacity=1.0` and shows.
-- Interactive second instance: daemon GUI summoned, now opaque and activated, foreground.
-- Background duplicate: silent exit, no wake, no log beyond `BackgroundSilentExit`.
-
-## Files expected to change later
-
-- `src/ui/MyForm.cpp` — add `this->Opacity = 1.0;` to `BringWindowToFrontDelegate` (line ~95).
-- `src/application/ApplicationController.cpp` — reorder background check before wake signal (lines ~315-328).
-- `src/application/CommandLine.cpp` (and `.h` if helper added) — make `ShouldHideWindow` case-insensitive (optional minimal).
-- No installer/task changes for this objective.
-
-## Validation plan
-
-- **Direct background launch test:** Kill daemon, run `Windows_Hello_Fix_v2_0.exe --background` from elevated prompt. Verify process starts, no window appears (`EnumWindows` / Task Manager no visible window), `diagnostic.log` shows `Startup_Context BackgroundArg=1`. Wait 10 s, verify still hidden.
-- **Manual launch test:** Kill daemon, run `Windows_Hello_Fix_v2_0.exe` (no args). Verify GUI visible, centered, `Status: Service Stopped` or `Running` per config, `Opacity` is 1 (window opaque).
-- **Duplicate background test:** Start daemon (`--background`), then run `Windows_Hello_Fix_v2_0.exe --background` again. Verify second process exits quickly, no GUI appears, log shows `SingleInstance_BackgroundSilentExit`, daemon remains hidden, no `WakeSignalSent`.
-- **Interactive duplicate test (core Issue #2):** Start daemon (`--background`), then run `Windows_Hello_Fix_v2_0.exe` (no args) as interactive second instance. Verify daemon window becomes fully opaque, appears on taskbar, `WindowState=Normal`, `BringToFront/Activate` brings it foreground. Verify no transparency (visual) and `Visible=true`. Repeat after daemon was hidden via `FormClosing` (X → Hide) to ensure wake still works.
-- **Reboot/logon test:** Reboot VM with Task Scheduler (or hybrid) autostart enabled. After logon, verify no GUI, daemon running, then interactive duplicate shows GUI with opacity 1.
-- **Camera regression:** After each visibility test, perform lock/unlock cycle, verify `SessionLock_Disable` / `SessionUnlock_Enable` hardware toggles and verification still succeed (no regression from visibility fix).
+All four `Get-ScheduledTask | Select Description` now show accurate descriptions (added `ce54644`): daemon “Starts … monitor … manage …”, lock “Handles … lock … disabling…”, unlock “Handles … unlock … re-enabling…”, log “Performs daily maintenance …”.
 
 ---
 
-# Combined Implementation Order
+## 3. Duplicate Camera Operation Analysis
 
-1. **Implement Startup Apps registration fix** (installer Run entry + StartupApproved handling + runtime gate). No GUI/camera changes yet. Rationale: startup is the foundation; it determines what launches at boot and whether user toggle is honored. Doing it first isolates registry/task behavior from GUI changes.
+**LOCK timeline:**
+```
+T0 WTS SessionLock (7) broadcast
+T1 native Daemon WndProc (UI thread) → EventCooldown → HandleSessionEvent → DisableTarget… (SetVerified 3× + Verify 3×100 ms + 250 ms sleeps) → log SessionLock_Disable
+T2 Task Scheduler service detects StateChange 7 → launches WindowsHelloFix_Lock.exe --disable-camera (new process, hidden, main.cpp Opacity 0)
+T3 new process Initialize: Startup_Context → Command_DisableCamera_Begin → DisableTarget… (same hardware, same verification) → log Command_Disable… + Disable…_Result
+T4 Both verify via GetCameraHardwareDisabledState (CM_PROB_DISABLED / CONFIGFLAG_DISABLED)
+```
+Two disables for one lock, per-process cooldown cannot dedup cross-process. Same for `UNLOCK` (native `Enable` vs task `Recover` cycle 350/900/500 ms). `Power` Lid/Button vs `PBT_APMSUSPEND` similar.
 
-2. **Build** (`Windows_Hello_Fix_v2_0.sln`, Release|x64). Verify no compile errors; check `install_script.nsi` syntax (NSIS compile).
+**UNLOCK timeline** adds Windows Hello race: native `Enable` (fast, no cycle) vs task `Recover` (cycle) – task's cycle sleeps 350 ms → disable → 900 ms → enable – can overlap `FrameServer` access.
 
-3. **Test startup behavior** (fresh install, silent logon, disable via Startup UI, re-enable, duplicate, uninstall — see Objective 1 validation plan). Record `diagnostic.log` and Registry/Task state.
+## 4. Windows Hello Race Analysis
 
-4. **Implement Issue #2 fix** (`MyForm.cpp` Opacity + `ApplicationController.cpp` ordering + optional `CommandLine` case fix). Keep changes minimal and separate commit. Rationale: GUI fix is orthogonal to startup; doing it second prevents conflating a startup regression (e.g., UAC prompt) with a visibility regression (transparent window). Also ensures the background-silent-exit order is in place before testing hybrid duplicate behavior; otherwise boot-time wake could be misattributed.
+- **LOCK:** Windows session transition holds `WinLogon` lock; camera disable races `Windows Hello` shutdown, but disabling before Hello fully releases the camera is safe (idempotent).
+- **UNLOCK:** Windows resumes, `WinLogon` → `BioIso` → `FrameServer` opens RGB camera for Hello face recognition. If native `EnableTarget…` (already-enabled check → no op) and task `Unlock` `Recover` cycle (disable 350 ms → enable 900 ms) run concurrently, the task's **disable** phase can coincide with Hello opening the device → `0xA00F4241 (0xC00D7167)` `MF_E_HW_MFT_FAILED` / `STATUS_DEVICE_NOT_READY`. The 900 ms sleep after disable extends the window where Hello sees `CM_PROB_DISABLED` or `CONFIGFLAG_DISABLED`. Current `AlreadyEnabled` check is inside `EnableTarget…` but **task bypasses it** because `RestoreConfiguredCameraHardware(true)` does `Recover` with `cycle=true` unconditionally (only `AlreadyEnabled` inside `Enable` is for non-cycle path, but `Recover` always does `SetVerified(enable)` first, then cycle).
 
-5. **Build** again (Release|x64).
+**Classification:** Task `Unlock` doing a *disable* as part of its cycle during Hello's active window is the most plausible trigger for `0xA00F4241` immediately after install/startup (when camera is already enabled, task still cycles).
 
-6. **Test GUI behavior** (background, manual, duplicate background, interactive duplicate, reboot — see Objective 2 validation plan).
+## 5. Recommended Task Architecture
 
-7. **Re-test camera/lock/unlock to prove no regressions** (manual lock/unlock, power suspend/resume via lid close/open, `diagnostic.log` verify `DisableTargetCameraHardware_Result` / `Enable…` with PASS). Do full matrix at least once after both fixes.
+| Task | Verdict | Rationale | New Behavior |
+|------|---------|-----------|--------------|
+| `WindowsHelloFix` | **RETAIN** | Sole silent elevated startup, owns WTS/power, `RunLevel Highest` avoids UAC, `IgnoreNew` + mutex handles duplicate | `AtLogOn` (no delay), `Highest`, `--background`, `Description` kept. No change. |
+| `WindowsHelloFix_LogCleanup` | **RETAIN** | No camera, daily log cap, proven | `Daily 00:00` `cmd.exe` `break` (fix `$APPDATA` expansion already handled by NSIS `$APPDATA` at install time), `Description` kept. |
+| `WindowsHelloFix_Unlock` | **REWORK to BOOT/LOGON recovery only** | Current per-unlock `Recover` duplicates native `Enable` and introduces disable-phase race. Should be **enable-only, no disable, no per-unlock**. | Trigger `AtLogOn` with **delay 30-60 s** (or `AtStartup` + `Delay 1 min`) instead of `StateChange 8`, Arguments `--failsafe-boot` (new enable-only path already in `CommandLine::IsFailsafeBootCommand` and `ApplicationController:355-443` which checks `IsHelloFixDaemonAlive`, `Monitoring==1`, `AlreadyEnabled?` → no op, else `Recover` once + `Verify`), `Hidden true`, `PT5M`, `Description` updated to “Startup/logon camera recovery – re-enables the RGB camera if the HelloFix daemon failed to start.” |
+| `WindowsHelloFix_Lock` | **REMOVE** | Provides nothing native does not; native `WM_WTSSESSION_CHANGE` 7 already disables (idempotent `AlreadyDisabled` check). Its existence only adds duplicate disable per lock. | Delete task in installer (`schtasks /Delete /TN WindowsHelloFix_Lock /F` already in `SEC01` `Sleep 1000` block, keep), remove `Register-WhfSessionTask` call for `Lock` (7) from `install_script.nsi`, keep uninstall delete for legacy cleanup. |
 
-8. **Commit each logical change separately** (one commit for startup, one for GUI, each with message citing files and behavior). Never batch both objectives into a single commit, to keep `git bisect` usable.
+**Why not keep Lock as failsafe?** Failsafe should be *enable-only* (safe default = camera enabled, Hello works); a lock failsafe that *disables* has no recovery value and only adds churn.
 
-**Why this order is safest:** Startup changes touch installer and early `Initialize` gating — if they break, the app may fail to start at all or prompt UAC; detecting that before touching GUI avoids debugging two failures at once. The GUI fix touches only `MyForm.cpp` delegate and initialization order — it cannot affect startup task registration, but its duplicate-background ordering is required for correct hybrid startup behavior, so it must be present before final startup+GUI integration tests. Camera/lock/unlock is the protected subsystem; re-testing it last proves neither earlier change introduced a regression in the hardware path.
+## 6. Original v2.0 Comparison
 
----
+| Difference | v2.0 (`39ac0ab`/`5e45003`) | Current `test` `c3f1271` | Risk |
+|------------|---------------------------|--------------------------|------|
+| `WindowsHelloFix_Lock` | **Not present** in v2.0 `Release/install_script.nsi` (only `WindowsHelloFix` + `LogCleanup` in early v2.0) | **Present** (`7765a06` added) | **High** – adds duplicate disable per lock |
+| `WindowsHelloFix_Unlock` | Not present / or `StateChange 8` per-unlock in later v2.0 | **Present** per-unlock with `Recover` cycle | **High** – duplicate enable + cycle disable race → `0xA00F4241` |
+| `WindowsHelloFix` trigger | `AtLogOn` no delay | same | Low |
+| `Failsafe` (`--failsafe-boot`) | Not present | Present (`7a7588e` merge) but **not scheduled** (no task) – dead code | Low – dead |
+| `RestoreConfiguredCameraHardware` at `Initialize` | `true` (cycle) | same | Medium – adds 350/900/500 at every boot |
+| `MyForm_Load` `EnableTarget…(autoStart)` | `autoStart` = `monitoring==1` → cycle when autostart | same | Medium – extra cycle on autostart |
+| `AlreadyDisabled/AlreadyEnabled` check | Present in `Disable/Enable` | Same, but **task `Unlock` bypasses** via `Recover` cycle unconditionally | **High** |
+| `Startup` Run entry | Deleted (`DeleteRegValue HKLM…Run`) | Same (now `Run` with `schtasks` for visibility, added `ce54644`) | Low |
+| `LogCleanup` `$APPDATA` | Literal `$APPDATA` (defect) | NSIS expands `$APPDATA` at install time → correct path (fixed `ce54644`?) | Low |
+| `DurationMs` timing | Not present | Added `PerfTimer` in `ce54644` follow-up | None |
 
-# Protected Architecture
+**Conclusion:** v2.0 was *single-writer* (only daemon touches hardware per lock/unlock); current is *dual-writer* (daemon + tasks). The extra writer is the regression.
 
-The following components MUST remain untouched during these two fixes unless future investigation proves they are directly responsible (per `AGENTS.md` protected components and `docs/KNOWN_ISSUES.md`):
+## 7. Issue #1 Assessment
 
-- **Camera hardware modules:** `src/camera/CameraDevice.cpp/.h`, `src/camera/CameraHardware.cpp/.h`, `src/camera/CameraRecovery.cpp/.h`, `src/camera/DeviceError.h` — discovery, `ToggleCameraHardware`/`ToggleCameraHardwareCfgMgr`, staging (10-23), error slots `g_lastSetupApiError`/`g_lastConfigManagerResult`/`g_lastHardwareToggleStage`, retry/recovery `SetCameraHardwareStateVerified` / `RecoverCameraHardware`.
-- **Camera recovery policy:** `RecoverCameraHardware(cycleDevice)` 350/900/500 ms sleeps, verify loops, re-enumeration.
-- **WTS session monitoring:** `src/events/NotificationRegistrar.cpp` (`WTSRegisterSessionNotification` retry), `src/events/WinEventDecoder.cpp::DecodeSessionEvent` (raw codes 7 lock / 8 unlock), `src/ui/MyForm.cpp::WndProc` `WM_WTSSESSION_CHANGE` dispatch, `ApplicationController::HandleSessionEvent`.
-- **Power/lid/button handling:** `NotificationRegistrar::RegisterPowerNotifications` (GUIDs `BA3E0F4D-…` lid, `A70AFB22-…` button), `WinEventDecoder::DecodePowerEvent`, `MyForm::WndProc` `WM_POWERBROADCAST`, `ApplicationController::HandlePowerEvent` with `m_isAlreadyDisabled` latch.
-- **Event decoding & cooldown:** `src/events/WinEventDecoder`, `src/events/EventCooldown` (1500 ms dedup).
-- **Configuration & logging:** `src/config/ConfigStore.cpp/.h`, `src/config/ConfigPaths.cpp/.h` (`config.txt` `monitoring=0|1` + `device=<id>`, `diagnostic.log` path and `Monitor` lock).
-- **Core monitoring policy:** `ApplicationController::IsMonitoring`, `ToggleMonitoring`, `Disable/Enable/RestoreConfiguredCameraHardware`, shutdown `HandleSystemEnd`/`Shutdown` asymmetry (see `KNOWN_ISSUES #3`).
+- **Duplicate per-lock/unlock `Disable`/`Recover(disable)` → `0xA00F4241`:** **Likely** – task's `Recover` does `Disable` 350 ms into Hello's `FrameServer` open window; `AlreadyEnabled` short-circuit is bypassed; `Verify` loop 3×100 ms not enough for Hello to recover.
+- **Startup double-enable ( `Initialize` `Restore` cycle + `MyForm_Load` `Enable`):** **Possible** – adds 2× `Recover` cycles at boot, but boot not Hello-active, less likely to cause `0xA00F4241`; still adds wear.
+- **Task `Lock` duplicate disable:** **Possible** – second disable when already disabled is idempotent (`AlreadyDisabled` → no op) so less harmful than unlock's disable.
+- **Unrelated:** `Power` lid/button, `Shutdown`, `installer warm-up` are one-shot at install, not per lock/unlock, **Unrelated** to immediate post-install `0xA00F4241` (which is per-unlock).
 
-If a bug is found in these, document in this Plan.md only; do not "clean up" or refactor.
+## 8. Startup Apps Issue #6 Investigation
 
----
+- `HKLM\Run\Windows Hello Fix` = `C:\WINDOWS\System32\schtasks.exe /Run /TN "WindowsHelloFix"` (`REG_SZ`, `SetRegView 64`, `$WINDIR` expansion) exists, `Win32_StartupCommand` shows `Windows Hello Fix` `schtasks…` `HKLM…Run`, `StartupApproved\Run` missing → `Enabled` by default (02 on next enumeration). **But** `HKLM\Run` with `schtasks` is filtered by some Task Manager builds as “system” not “app”; previous working v2.0 had **no** Run entry at all (deleted), so it also never appeared – the “previously appeared” memory may be from a different Windows build or from `HKCU` Run.
+- Working example on this machine: `HKCU\Run\OneDrive` (`"C:\Program Files\Microsoft OneDrive\OneDrive.exe" /background`, `StartupApproved 03…` disabled, `Win32_StartupCommand` shows `OneDrive`) **does** appear in `Win32_StartupCommand` and Task Manager. `HKLM\Run\SecurityHealth` (`%windir%\system32\SecurityHealthSystray.exe`, `060…`) also appears. So `HKLM\Run` *can* appear, but `schtasks` target may be hidden.
+- **Root-cause candidates:** (1) wrong value name (`WindowsHelloFix` vs `Windows Hello Fix` – now fixed to spaced), (2) `schtasks` indirection hides publisher, (3) `32-bit view` vs `64-bit` (`SetRegView 64` correct for `HKLM`), (4) stale `StartupApproved` `03…` (now cleaned), (5) installer creates Run *after* task but before `WriteUninstaller`, order not harmful.
+- **Evidence:** `reg query HKLM\…\Run /v "Windows Hello Fix"` → exists, `HKLM\…\StartupApproved\Run` has no `Windows Hello Fix` (so enabled), yet tester still reports not visible → suggests Task Manager on this build requires `HKCU\Run` **or** `Startup` folder, not `HKLM\Run` with `schtasks`. Original v2.0 also deleted `HKLM\Run`, so it also never appeared – the “original appeared” may be misremembered or was `HKCU` on a different machine.
 
-# Open Questions
+## 9. Timing Instrumentation Plan
 
-- Which hive for Run entry — `HKCU` per-user or `HKLM` machine-wide? Task is per-installing-user (`LogonType Interactive`); `HKCU` matches per-user Startup Apps toggle, but `HKLM` would make app start for all users. Installer currently uses `SetRegView 64` (HKLM) for uninstall key and Run deletion. Needs decision with human approval.
-- Exact `StartupApproved` binary format to write for "enabled by default" — Task Manager uses `02 00 00 00 …` for enabled, `03…` for disabled, with timestamp suffix. Should installer pre-seed enabled value or simply delete disabled value and let Task Manager default to enabled? Must verify on target Windows builds.
-- Whether `Task Scheduler` daemon task alone could be made visible by adding `Description` or changing `Settings.Hidden` or moving task to `\Startup` folder — rejected as undocumented, but could be validated by creating a test task on a VM and checking Startup enumeration before committing to Run hybrid.
-- Does `RequireAdministrator` + Run entry still prompt UAC even when launched via `StartupApproved` gate? If hybrid gate is used, the Run-launched process may still prompt before it can check `StartupApproved` and exit — need to test whether the prompt appears for a disabled-startup Run entry (which shouldn't launch anyway) and whether task-launched elevated process can suppress it.
-- Should the runtime `StartupApproved` check live in `ApplicationController::Initialize` or in `main.cpp` before `Application::Run` to avoid constructing `MyForm` at all when disabled? Early exit in `main.cpp` would be more efficient but touches startup contract — needs review.
-- Is `ShouldHideWindow` case-insensitivity fix in scope for Issue #2, or should it be deferred to a separate hardening commit?
-- Uninstall cleanup scope: should uninstall delete `HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run\WindowsHelloFix` for *all* users or only current user? `SetShellVarContext current` only cleans current user's `AppData`; per-user Run cleanup may miss other profiles.
-- Confirm no existing Group Policy or Defender Application Control blocks Run entries for elevated exes — test on clean Windows 10/11 with default UAC.
-- Verify `x64/Release/install_script.nsi` ordering of Run write vs. task creation vs. warm-up `/restore-camera` — should Run be written before or after task registration to avoid race where user reboots mid-install?
-- Confirm whether `bcd3cdb` opacity line alone is sufficient or if additional `Opacity` handling is needed for `SetWindowVisibleForBackground(false)` or `FormClosing` hide path — no evidence, but should be checked by code-review of all visibility sites listed above.
+Already added `src/utilities/PerfTimer.h` (`QueryPerformanceCounter`) and `ApplicationController::Disable/Enable` `DurationMs` (verified `Disable…_Result DurationMs=5964.46` includes `SetVerified` retries + `Verify` + sleeps). **Plan to extend:**
+
+- Keep `PerfTimer` as is (no new file).
+- Add `DurationMs` to `RestoreConfiguredCameraHardware` / `Initialize` startup path (`Startup_Restore…` + `MyForm_Load` first enable) to measure boot cost (optional, not invasive).
+- Do **not** add `ApiMs`/`VerifyMs`/`SleepMs` breakdown (would require touching `CameraRecovery` sleeps) – total is enough.
+
+Location: `ApplicationController.cpp:151-211` `Disable/Enable` already done.
+
+## 10. Implementation Plan — Strict Ordered Phases
+
+**Phase 1 – Task Scheduler de-duplication (PLANNED, not implemented):**
+1. Update `x64/Release/install_script.nsi` `SEC01`: *remove* `Register-WhfSessionTask 'WindowsHelloFix_Lock' 7 …` line, keep `Unlock` but change to `Register-WhfSessionTask 'WindowsHelloFix_Unlock' 8 '--failsafe-boot' 'Startup/logon camera recovery …'` with trigger `Delayed AtLogOn` (or `AtStartup` + `Delay 60s`) via `New-ScheduledTaskTrigger -AtLogOn -RandomDelay` or COM `Trigger.Delay = "PT1M"`, `Hidden true`, `PT5M`, `Description` updated. Keep `WindowsHelloFix` and `LogCleanup` unchanged.
+2. Keep `schtasks /Delete /TN WindowsHelloFix_Lock` in `SEC01` stale wipe and `Uninstall` for legacy cleanup.
+
+**Phase 2 – Camera idempotency verification (no code change, just review):** Confirm `Disable` already checks `AlreadyDisabled` before `SetVerified`, `Enable` checks `AlreadyEnabled`, and `Recover` for failsafe checks `AlreadyEnabled` before `Recover`. No fix needed.
+
+**Phase 3 – Failsafe narrowing:** Ensure `CommandLine::IsFailsafeBootCommand` (`--failsafe-boot`) already checks `IsHelloFixDaemonAlive`, `Monitoring==1`, `AlreadyEnabled` → no op. Keep `ApplicationController:355-443` as is.
+
+**Phase 4 – Build & validation:** `Release|x64` `0 warnings`, `makensis`, then `TEST A` fresh install → `Run` `Windows Hello Fix` `Enabled`, `Tasks` 3 (daemon, reworked unlock, logcleanup) descriptions, reboot → silent elevated resident, lock/unlock single `Disable/Enable` in `diagnostic.log` (no duplicate `Command_Disable/Enable`), no `0xA00F4241`.
+
+**Rollback:** `git revert` to `c3f1271` retains four tasks; `Lock` can be re-added by restoring the one `FileWrite` line.
+
+## 11. AGENTS.md Changes
+
+Added permanent section (see `AGENTS.md` diff):
+
+- `# HelloFix Working Philosophy`
+- `## Camera Authority` – native listener sole authority
+- `## Lock/Unlock` – check `Already…` → no op
+- `## Task Scheduler` – tasks must not duplicate lock/unlock; reserved for startup, log cleanup, narrow startup recovery
+- `## Failsafe Rules` – enable-only, never disable, must not race daemon
+- `## Protected Camera Components` – camera modules protected
+- `## Minimal Change Principle`
+
+Plus kept `Plan.md Requirement` etc.
+
+## 12. docs/Plan.md
+
+Replaced old startup/GUI plan (which described `0c0fe6a` baseline) with this forensic plan, marked `PLANNED — NOT IMPLEMENTED`, with tables for camera inventory, task analysis, duplicate timeline, Hello race, recommended architecture, v2.0 comparison, Issue #1 assessment, Startup Apps investigation, timing plan, ordered phases, rollback.
+
+## 13. Files Modified
+
+- `AGENTS.md` – added `HelloFix Working Philosophy` (+ `Plan.md Requirement` already there, kept)
+- `docs/Plan.md` – full rewrite to this forensic plan (306 → ~400 lines)
+
+No other files modified (per `git status --short` → only those two, plus rebuilt `x64/Release/*.exe` which are build artifacts and not committed).
 
