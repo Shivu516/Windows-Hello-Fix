@@ -13,6 +13,7 @@ int main(array<String^>^ args)
 
     MyForm form;
 
+    // v2.0 behavior: hide for background/disable/enable/restore/repair (case-sensitive match as in CommandLine::ShouldHideWindow)
     bool runHidden = CommandLine::ShouldHideWindow(args);
 
     if (runHidden) {
