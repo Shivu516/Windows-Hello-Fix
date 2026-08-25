@@ -1,6 +1,9 @@
 # Visual Studio user/workspace files
 .vs/
 
+# v2.0 Reference Folder
+release-v2.0/
+
 # Visual Studio build output
 x64/
 x86/
