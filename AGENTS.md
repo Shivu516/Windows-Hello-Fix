@@ -132,6 +132,18 @@ Do not assume a skill applies when it does not match the task.
 When a skill references additional files such as `references/`, `examples/`,
 or `scripts/`, load or use those resources when the skill instructs you to do so.
 
+### Skill priority
+
+Project instructions in `AGENTS.md` always take precedence over general
+guidance contained in a skill.
+
+Skills provide procedures and supporting knowledge; they must not override
+the project's behavioral-preservation, investigation, Git-safety, or
+approval requirements.
+
+When multiple skills apply, use only the relevant portions of each skill and
+avoid combining unrelated workflows unnecessarily.
+
 ## Quick reference
 
 | Item | Value |
