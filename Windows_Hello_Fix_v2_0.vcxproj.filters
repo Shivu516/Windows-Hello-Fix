@@ -18,6 +18,9 @@
     <ClInclude Include="MyForm.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="src\ui\MyForm.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="resource.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -27,6 +30,14 @@
     <ClInclude Include="ProductionUtilities.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="Source Files\src">
+      <UniqueIdentifier>{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\src\ui">
+      <UniqueIdentifier>{B2C3D4E5-F6A7-8901-BCDE-F12345678901}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="Windows_Hello_Fix_v2_0_resources.rc">
@@ -41,6 +52,24 @@
   <ItemGroup>
     <ClCompile Include="main.cpp">
       <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="src\ui\MyForm_Camera.cpp">
+      <Filter>Source Files\src\ui</Filter>
+    </ClCompile>
+    <ClCompile Include="src\ui\MyForm_Config.cpp">
+      <Filter>Source Files\src\ui</Filter>
+    </ClCompile>
+    <ClCompile Include="src\ui\MyForm_Core.cpp">
+      <Filter>Source Files\src\ui</Filter>
+    </ClCompile>
+    <ClCompile Include="src\ui\MyForm_Events.cpp">
+      <Filter>Source Files\src\ui</Filter>
+    </ClCompile>
+    <ClCompile Include="src\ui\MyForm_System.cpp">
+      <Filter>Source Files\src\ui</Filter>
+    </ClCompile>
+    <ClCompile Include="src\ui\MyForm_UI.cpp">
+      <Filter>Source Files\src\ui</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>

@@ -137,6 +137,7 @@
     <ClInclude Include="MyForm.h">
       <FileType>CppForm</FileType>
     </ClInclude>
+    <ClInclude Include="src\ui\MyForm.h" />
     <ClInclude Include="ProductionUtilities.h" />
     <ClInclude Include="resource.h" />
     <ClInclude Include="resource1.h" />
@@ -149,6 +150,12 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="main.cpp" />
+    <ClCompile Include="src\ui\MyForm_Camera.cpp" />
+    <ClCompile Include="src\ui\MyForm_Config.cpp" />
+    <ClCompile Include="src\ui\MyForm_Core.cpp" />
+    <ClCompile Include="src\ui\MyForm_Events.cpp" />
+    <ClCompile Include="src\ui\MyForm_System.cpp" />
+    <ClCompile Include="src\ui\MyForm_UI.cpp" />
   </ItemGroup>
   <ItemGroup>
     <Xml Include="WindowsHelloFix_TaskSchedule.xml" />
