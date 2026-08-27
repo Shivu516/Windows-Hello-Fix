@@ -73,6 +73,7 @@ Philosophy: **Reliable behavior first, clean architecture second, optimization t
 - **GUI visibility** — hidden background startup (`--background`, `Opacity=0`), interactive startup, taskbar behavior, wake, `FormClosing` (cancel → minimize to background, `isBackgroundMode`). Do not make background launches visible.
 - **Startup / command-line** — arguments `--background`, `--disable-camera`, `--enable-camera`, `--restore-camera`, `--repair-camera` are behavior-sensitive; preserve names and processing order.
 - **Installer (NSIS)** — `x64/Release/install_script.nsi`: task names/args, privilege level, triggers, install order, uninstall cleanup, executable deployment, post-install launch. Inspect the full flow before changing.
+- **Runtime camera failsafe** — `src/watchdog/CameraFailsafe` is an auxiliary safety mechanism only. It must never become a second camera-state authority or override an intentional `ExpectedDisabled` state (lock/suspend/shutdown/monitoring-off). It observes and recovers through the existing `src/core` pipeline after confirmation, with bounded retry/cooldown.
 
 ## 6. No unsafe "cleanup"
 

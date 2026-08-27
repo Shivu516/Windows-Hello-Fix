@@ -1,4 +1,5 @@
 #include "MyForm.h"
+#include "../watchdog/CameraFailsafe.h"
 
 namespace Windows_Hello_Fix_v2_0 {
 
@@ -19,11 +20,17 @@ namespace Windows_Hello_Fix_v2_0 {
         hLidNotification = NULL;
         hButtonNotification = NULL;
         diagnosticLogSync = gcnew Object();
+        cameraFailsafe = nullptr;
         InitializeComponent();
     }
 
     // LAST THING THE APP DOES BEFORE SHUTTING DOWN ENTIRELY (Destructor)
     MyForm::~MyForm() {
+        // Disarm auxiliary failsafe first — it must never outlive core shutdown logic.
+        if (cameraFailsafe != nullptr) {
+            try { cameraFailsafe->Disarm(); } catch (...) {}
+            cameraFailsafe = nullptr;
+        }
         keepListening = false;
 
         auto* pSelectedInstanceId = static_cast<std::wstring*>(selectedInstanceId);
@@ -74,6 +81,10 @@ namespace Windows_Hello_Fix_v2_0 {
     }
 
     MyForm::!MyForm() {
+        if (cameraFailsafe != nullptr) {
+            try { cameraFailsafe->Disarm(); } catch (...) {}
+            cameraFailsafe = nullptr;
+        }
         keepListening = false;
         auto* pSelectedInstanceId = static_cast<std::wstring*>(selectedInstanceId);
         if (isSystemEnding) {
@@ -402,6 +413,51 @@ namespace Windows_Hello_Fix_v2_0 {
                 false
             );
         }
+
+        // Arm auxiliary runtime failsafe for normal long-lived daemon only.
+        // Never arm for short-lived command workers (already exited above) or before
+        // WTS/power registration completes. Grace period suppresses startup race.
+        if (!isSystemEnding) {
+            try {
+                if (cameraFailsafe == nullptr) {
+                    cameraFailsafe = gcnew CameraFailsafe(this);
+                    cameraFailsafe->Arm();
+                }
+            }
+            catch (...) {}
+        }
+    }
+
+    // ---- Failsafe integration — read-only accessors (no state moved out of MyForm) ----
+
+    bool MyForm::IsMonitoringActive()
+    {
+        return isMonitoring;
+    }
+
+    bool MyForm::IsSystemEndingActive()
+    {
+        return isSystemEnding;
+    }
+
+    bool MyForm::IsCameraExpectedEnabled()
+    {
+        return !cameraExpectedDisabled;
+    }
+
+    bool MyForm::TryGetFailsafeTargetId(std::wstring& targetId)
+    {
+        return TryGetTargetCameraInstanceId(targetId, true);
+    }
+
+    void MyForm::LogFailsafe(String^ eventName, String^ targetState, bool verificationPass)
+    {
+        WriteDiagnosticLog(eventName, targetState, verificationPass);
+    }
+
+    void MyForm::LogFailsafeWithDevice(String^ eventName, std::wstring targetInstanceId, String^ targetState, bool verificationPass)
+    {
+        WriteDiagnosticLogWithDevice(eventName, targetInstanceId, targetState, verificationPass);
     }
 
 }

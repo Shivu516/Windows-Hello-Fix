@@ -58,6 +58,8 @@ namespace Windows_Hello_Fix_v2_0 {
     using namespace System::IO;
     using namespace System::Threading;
 
+    ref class CameraFailsafe; // forward-declare watchdog (lives outside src/core)
+
     public ref class MyForm : public System::Windows::Forms::Form
     {
     private:
@@ -80,6 +82,9 @@ namespace Windows_Hello_Fix_v2_0 {
         // Named event for cross-process communication
         System::Threading::Thread^ backgroundWorker;
         bool keepListening;
+        CameraFailsafe^ cameraFailsafe;
+        // Auxiliary runtime failsafe — observes ExpectedEnabled vs observed Disabled;
+        // never performs camera operations itself. Lives outside src/core.
 
         // Low-level hardware registration handles
         HPOWERNOTIFY hLidNotification;
@@ -117,6 +122,14 @@ namespace Windows_Hello_Fix_v2_0 {
         void BringWindowToFrontDelegate();
 
     public:
+        // Failsafe integration — read-only accessors; watchdog must not mutate core state
+        bool IsMonitoringActive();
+        bool IsSystemEndingActive();
+        bool IsCameraExpectedEnabled();
+        bool TryGetFailsafeTargetId(std::wstring& targetId);
+        void LogFailsafe(String^ eventName, String^ targetState, bool verificationPass);
+        void LogFailsafeWithDevice(String^ eventName, std::wstring targetInstanceId, String^ targetState, bool verificationPass);
+
         MyForm(void);
 
     protected:

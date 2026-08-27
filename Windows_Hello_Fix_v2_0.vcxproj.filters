@@ -21,6 +21,9 @@
     <ClInclude Include="src\core\MyForm.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="src\watchdog\CameraFailsafe.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="resource.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -37,6 +40,9 @@
     </Filter>
     <Filter Include="Source Files\src\core">
       <UniqueIdentifier>{B2C3D4E5-F6A7-8901-BCDE-F12345678901}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\src\watchdog">
+      <UniqueIdentifier>{C3D4E5F6-A7B8-9012-CDEF-123456789012}</UniqueIdentifier>
     </Filter>
   </ItemGroup>
   <ItemGroup>
@@ -70,6 +76,9 @@
     </ClCompile>
     <ClCompile Include="src\core\MyForm_UI.cpp">
       <Filter>Source Files\src\core</Filter>
+    </ClCompile>
+    <ClCompile Include="src\watchdog\CameraFailsafe.cpp">
+      <Filter>Source Files\src\watchdog</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
