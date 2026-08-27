@@ -219,6 +219,13 @@ namespace Windows_Hello_Fix_v2_0 {
         // ====== NATIVE INTER-PROCESS SIGNAL LAYER ======
         hAppMutex = CreateMutex(NULL, TRUE, L"Global\\WindowsHelloFix_AppMutex");
         if (GetLastError() == ERROR_ALREADY_EXISTS) {
+            // Background/automatic launches must never wake the running daemon's GUI.
+            if (launchRequestedBackground) {
+                WriteDiagnosticLog(L"SingleInstance_BackgroundSilentExit", L"NoChange", true);
+                Environment::Exit(0);
+                return;
+            }
+
             bool wakeSignalSent = false;
             HANDLE hOpenEvent = OpenEvent(EVENT_MODIFY_STATE, FALSE, L"Global\\WindowsHelloFix_WakeupEvent");
             if (hOpenEvent) {
@@ -232,13 +239,6 @@ namespace Windows_Hello_Fix_v2_0 {
             // Avoid showing scary duplicate-instance prompts on expected startup/manual-open races.
             if (wakeSignalSent) {
                 WriteDiagnosticLog(L"SingleInstance_WakeSignalSent", L"NoChange", true);
-                Environment::Exit(0);
-                return;
-            }
-
-            // If wake event is unavailable and this is a background launch, fail quiet and do not block startup.
-            if (launchRequestedBackground) {
-                WriteDiagnosticLog(L"SingleInstance_BackgroundWakeEventMissing", L"NoChange", false);
                 Environment::Exit(0);
                 return;
             }
