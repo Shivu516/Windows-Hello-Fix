@@ -4,17 +4,17 @@ Practical, persistent instructions for AI agents working on this repository.
 
 ## 1. Baseline
 
-This branch (`release-v2.0-restructured`) contains a **behavior-preserving, mechanical extraction** of the original monolithic `release-v2.0/MyForm.h` into a modular `src/ui/` tree. The extraction was verified by static analysis and a successful `Release|x64` build; runtime behavior is intended to be identical to v2.0.
+This branch (`release-v2.0-restructured`) contains a **behavior-preserving, mechanical extraction** of the original monolithic `release-v2.0/MyForm.h` into a modular `src/core/` tree. The extraction was verified by static analysis and a successful `Release|x64` build; runtime behavior is intended to be identical to v2.0.
 
 Active source tree (inspect with `git ls-files` before assuming more):
 
 ```
 main.cpp
-MyForm.h                 # SHIM: #include "src/ui/MyForm.h" (do not delete; preserves include path)
+MyForm.h                 # SHIM: #include "src/core/MyForm.h" (do not delete; preserves include path)
 ProductionUtilities.h    # legacy/unused helper; not part of build flow
 Windows_Hello_Fix_v2_0.{vcxproj,vcxproj.filters,sln}
 Windows_Hello_Fix_v2_0.rc / _resources.rc / resource.h / resource1.h / app.manifest
-src/ui/
+src/core/
   MyForm.h            # declaration-only: class, CameraDeviceInfo, extern globals, forward decls
   MyForm_Camera.cpp   # native camera pipeline + Disable/Enable/Restore members
   MyForm_Config.cpp   # config.txt + diagnostic.log + save/load + target resolution
@@ -31,10 +31,28 @@ x64/Release/install_script.nsi   # NSIS installer (load-bearing)
 
 ## 2. Architecture policy
 
-- The `src/ui/` files above are the **known-good modular baseline**. Preserve their exact filenames and current responsibilities unless a task explicitly concerns architecture.
+- The `src/core/` files above are the **known-good modular baseline**. Preserve their exact filenames and current responsibilities unless a task explicitly concerns architecture.
 - Do **not** casually rename, split into many smaller files, merge back into a monolith, or introduce a controller/abstraction layer merely for aesthetics.
 - Adding new files/folders or improving module boundaries **is allowed** when there is a real engineering reason. Follow the architectural-change rule (§8) for such work.
 - New features should go in new appropriate files/folders rather than being forced into the existing seven.
+
+## Stable Core Directory
+
+`src/core/` contains the existing stable HelloFix implementation.
+
+Agents should preserve this directory and its current file structure by default.
+
+Bug fixes may modify existing files in `src/core/` when the affected behavior
+belongs there, but agents should avoid adding unrelated new functionality to
+existing `src/core/` files.
+
+New features should normally be implemented in new appropriate source files or
+folders outside `src/core/` when that provides a clearer separation of
+responsibility.
+
+The `src/core/` structure is a stability boundary, not an immutable
+architecture. Significant restructuring of it requires investigation,
+planning, and approval before implementation.
 
 ## 3. Behavioral source of truth
 

@@ -1,6 +1,6 @@
 # Camera Flow (Pipeline Detail)
 
-This document describes the camera hardware pipeline exactly as implemented in `src/ui/MyForm_Camera.cpp` and the `MyForm` members that drive it. It is descriptive only — no optimizations are proposed.
+This document describes the camera hardware pipeline exactly as implemented in `src/core/MyForm_Camera.cpp` and the `MyForm` members that drive it. It is descriptive only — no optimizations are proposed.
 
 ## 1. Discovery — `ScanSystemCameras`
 

@@ -17,10 +17,10 @@ src/
 Other relevant files (outside `src/`):
 
 ```
-MyForm.h                              Root shim -> #include "src/ui/MyForm.h"
+MyForm.h                              Root shim -> #include "src/core/MyForm.h"
 main.cpp                             Entry point (MyForm form + Application::Run)
 ProductionUtilities.h                Legacy/unused helper header (not part of the build flow)
-Windows_Hello_Fix_v2_0.vcxproj       MSBuild project (lists all src/ui files)
+Windows_Hello_Fix_v2_0.vcxproj       MSBuild project (lists all src/core files)
 Windows_Hello_Fix_v2_0.vcxproj.filters
 release-v2.0/MyForm.h                Canonical reference (untouched)
 ```
@@ -29,10 +29,10 @@ release-v2.0/MyForm.h                Canonical reference (untouched)
 
 | File | Responsibility |
 |---|---|
-| `src/ui/MyForm.h` | Class/struct/extern declarations; compile-time GUID/constant definitions. |
-| `src/ui/MyForm_Camera.cpp` | Camera discovery, SetupAPI & CfgMgr enable/disable, verification, retry/recovery, cooldown globals. |
-| `src/ui/MyForm_Config.cpp` | `%APPDATA%` config + diagnostic log, save/load/parse, target-device resolution. |
-| `src/ui/MyForm_Core.cpp` | Object lifetime: constructor, destructor, finalizer, UI init, full startup sequence. |
-| `src/ui/MyForm_Events.cpp` | `WndProc`: deduplicated handling of shutdown, suspend/resume, lid/button, lock/unlock. |
-| `src/ui/MyForm_System.cpp` | Command-line verb detection; background wake-listener thread. |
-| `src/ui/MyForm_UI.cpp` | Form close (minimize-to-background) and start/stop monitoring button. |
+| `src/core/MyForm.h` | Class/struct/extern declarations; compile-time GUID/constant definitions. |
+| `src/core/MyForm_Camera.cpp` | Camera discovery, SetupAPI & CfgMgr enable/disable, verification, retry/recovery, cooldown globals. |
+| `src/core/MyForm_Config.cpp` | `%APPDATA%` config + diagnostic log, save/load/parse, target-device resolution. |
+| `src/core/MyForm_Core.cpp` | Object lifetime: constructor, destructor, finalizer, UI init, full startup sequence. |
+| `src/core/MyForm_Events.cpp` | `WndProc`: deduplicated handling of shutdown, suspend/resume, lid/button, lock/unlock. |
+| `src/core/MyForm_System.cpp` | Command-line verb detection; background wake-listener thread. |
+| `src/core/MyForm_UI.cpp` | Form close (minimize-to-background) and start/stop monitoring button. |

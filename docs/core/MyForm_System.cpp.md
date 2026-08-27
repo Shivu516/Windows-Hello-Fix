@@ -1,6 +1,6 @@
-# `src/ui/MyForm_System.cpp` — Command Parsing & Wake Listener
+# `src/core/MyForm_System.cpp` — Command Parsing & Wake Listener
 
-**Path:** `src/ui/MyForm_System.cpp`
+**Path:** `src/core/MyForm_System.cpp`
 **Lines:** 53
 **Included by:** built directly; `#include "MyForm.h"`
 

@@ -1,6 +1,6 @@
 # Event Flow
 
-All external events funnel through `MyForm::WndProc` (`src/ui/MyForm_Events.cpp`). The form must register for session notifications (`WTSRegisterSessionNotification`) and power notifications (`RegisterPowerSettingNotification`) during `MyForm_Load` for these events to arrive.
+All external events funnel through `MyForm::WndProc` (`src/core/MyForm_Events.cpp`). The form must register for session notifications (`WTSRegisterSessionNotification`) and power notifications (`RegisterPowerSettingNotification`) during `MyForm_Load` for these events to arrive.
 
 ```mermaid
 flowchart TD

@@ -1,6 +1,6 @@
-# `src/ui/MyForm_Events.cpp` — `WndProc` Event Dispatch
+# `src/core/MyForm_Events.cpp` — `WndProc` Event Dispatch
 
-**Path:** `src/ui/MyForm_Events.cpp`
+**Path:** `src/core/MyForm_Events.cpp`
 **Lines:** 110
 **Included by:** built directly; `#include "MyForm.h"`
 

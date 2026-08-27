@@ -1,6 +1,6 @@
-# `src/ui/MyForm_Config.cpp` — Configuration & Diagnostic Logging
+# `src/core/MyForm_Config.cpp` — Configuration & Diagnostic Logging
 
-**Path:** `src/ui/MyForm_Config.cpp`
+**Path:** `src/core/MyForm_Config.cpp`
 **Lines:** 148
 **Included by:** built directly; `#include "MyForm.h"`
 

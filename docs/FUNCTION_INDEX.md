@@ -2,7 +2,7 @@
 
 Grouped by source file. "Called by" lists the main callers in the current code.
 
-## `src/ui/MyForm_Camera.cpp`
+## `src/core/MyForm_Camera.cpp`
 
 | Function | Responsibility | Called by |
 |---|---|---|
@@ -24,7 +24,7 @@ Grouped by source file. "Called by" lists the main callers in the current code.
 | `MyForm::EnableTargetCameraHardware` | Member: enable target w/ logging | `WndProc`, `btnToggle_Click`, `~MyForm` |
 | `MyForm::RestoreConfiguredCameraHardware` | Recover saved device or all | `MyForm_Load`, `~MyForm` (no selection branch) |
 
-## `src/ui/MyForm_Config.cpp`
+## `src/core/MyForm_Config.cpp`
 
 | Function | Responsibility | Called by |
 |---|---|---|
@@ -37,7 +37,7 @@ Grouped by source file. "Called by" lists the main callers in the current code.
 | `EnsureConfigFileExists` | Create default config if missing | `MyForm_Load` |
 | `TryGetTargetCameraInstanceId` | Resolve target camera (selection→config→MI_00→first) | `Disable/EnableTargetCameraHardware`, `MyForm_Load` (command verify) |
 
-## `src/ui/MyForm_Core.cpp`
+## `src/core/MyForm_Core.cpp`
 
 | Function | Responsibility | Called by |
 |---|---|---|
@@ -47,13 +47,13 @@ Grouped by source file. "Called by" lists the main callers in the current code.
 | `MyForm::InitializeComponent` | Build WinForms UI; wire events | ctor |
 | `MyForm::MyForm_Load` | Full startup sequence | `Load` event |
 
-## `src/ui/MyForm_Events.cpp`
+## `src/core/MyForm_Events.cpp`
 
 | Function | Responsibility | Called by |
 |---|---|---|
 | `MyForm::WndProc` | Dispatch shutdown/power/session messages | Windows message pump |
 
-## `src/ui/MyForm_System.cpp`
+## `src/core/MyForm_System.cpp`
 
 | Function | Responsibility | Called by |
 |---|---|---|
@@ -62,7 +62,7 @@ Grouped by source file. "Called by" lists the main callers in the current code.
 | `MyForm::ListenForWakeupSignal` | Block on wake event; raise window | `backgroundWorker` thread |
 | `MyForm::BringWindowToFrontDelegate` | Show/activate window | `ListenForWakeupSignal` |
 
-## `src/ui/MyForm_UI.cpp`
+## `src/core/MyForm_UI.cpp`
 
 | Function | Responsibility | Called by |
 |---|---|---|
@@ -71,7 +71,7 @@ Grouped by source file. "Called by" lists the main callers in the current code.
 
 ## Counts
 
-- **Source files documented:** 7 (under `src/ui/`)
+- **Source files documented:** 7 (under `src/core/`)
 - **Functions indexed:** 37
 - **Major Windows APIs explained:** ~25 (SetupAPI, CfgMgr, WTS, power, sync/IPC, token, WinForms)
 - **Event paths documented:** shutdown, suspend, resume, lid/button, session lock, session unlock, wake signal

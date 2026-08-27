@@ -1,6 +1,6 @@
-# `src/ui/MyForm_Core.cpp` — Lifecycle, Construction, Shutdown & Startup
+# `src/core/MyForm_Core.cpp` — Lifecycle, Construction, Shutdown & Startup
 
-**Path:** `src/ui/MyForm_Core.cpp`
+**Path:** `src/core/MyForm_Core.cpp`
 **Lines:** 407
 **Included by:** built directly; `#include "MyForm.h"`
 

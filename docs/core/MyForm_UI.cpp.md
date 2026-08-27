@@ -1,6 +1,6 @@
-# `src/ui/MyForm_UI.cpp` — UI Event Handlers
+# `src/core/MyForm_UI.cpp` — UI Event Handlers
 
-**Path:** `src/ui/MyForm_UI.cpp`
+**Path:** `src/core/MyForm_UI.cpp`
 **Lines:** 56
 **Included by:** built directly; `#include "MyForm.h"`
 

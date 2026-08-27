@@ -1,9 +1,9 @@
-# `src/ui/MyForm_Camera.cpp` — Camera Discovery, Toggle & Recovery
+# `src/core/MyForm_Camera.cpp` — Camera Discovery, Toggle & Recovery
 
-**Path:** `src/ui/MyForm_Camera.cpp`
+**Path:** `src/core/MyForm_Camera.cpp`
 **Lines:** 470
 **Included by:** built directly (translation unit); `#include "MyForm.h"`
-**Build relationship:** `ClCompile` in vcxproj, filter `Source Files\src\ui`.
+**Build relationship:** `ClCompile` in vcxproj, filter `Source Files\src\core`.
 
 ## Purpose
 

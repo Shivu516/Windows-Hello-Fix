@@ -1,6 +1,6 @@
-# `src/ui/MyForm.h` — Class Declaration & Shared State
+# `src/core/MyForm.h` — Class Declaration & Shared State
 
-**Path:** `src/ui/MyForm.h`
+**Path:** `src/core/MyForm.h`
 **Type:** C++/CLI header (`#pragma once`)
 **Included by:** `MyForm.h` (root shim), `main.cpp`, and every `MyForm_*.cpp`
 **Build relationship:** `ClInclude` in `Windows_Hello_Fix_v2_0.vcxproj`; filter `Header Files`.
@@ -9,14 +9,14 @@
 
 This header is the **single source of truth for the `MyForm` class declaration**. It was extracted from the monolithic `release-v2.0/MyForm.h` so that only declarations (and the `CameraDeviceInfo` struct plus free-function forward declarations) remain here, while all function *bodies* now live in the `MyForm_*.cpp` files.
 
-The root `MyForm.h` is a three-line shim (`#pragma once` + `#include "src/ui/MyForm.h"`) so that the existing project include path (`#include "MyForm.h"` in `main.cpp`) keeps resolving without any change to `main.cpp`.
+The root `MyForm.h` is a three-line shim (`#pragma once` + `#include "src/core/MyForm.h"`) so that the existing project include path (`#include "MyForm.h"` in `main.cpp`) keeps resolving without any change to `main.cpp`.
 
 ## Includes & Pragmas
 
 - Windows headers: `windows.h`, `wtsapi32.h`, `setupapi.h`, `cfgmgr32.h`, `devguid.h`
 - STL: `vector`, `string`, `fstream`
 - `msclr\marshal_cppstd.h` for native↔managed string marshaling
-- `../../resource.h` (relative path because the header now lives in `src/ui/`)
+- `../../resource.h` (relative path because the header now lives in `src/core/`)
 - `#pragma comment(lib, ...)` for `wtsapi32.lib`, `setupapi.lib`, `user32.lib`, `cfgmgr32.lib`, `advapi32.lib`
 
 ## Compile-time constants (lines 18–33)

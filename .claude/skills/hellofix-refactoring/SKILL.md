@@ -64,10 +64,10 @@ The current source architecture is the known-good baseline.
 
 Preserve it unless the requested task explicitly changes architecture.
 
-In particular, preserve the current `src/ui` structure by default:
+In particular, preserve the current `src/core` structure by default:
 
 ```text
-src/ui/
+src/core/
     MyForm.h
     MyForm_Camera.cpp
     MyForm_Config.cpp

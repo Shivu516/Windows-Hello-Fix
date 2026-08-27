@@ -1,6 +1,6 @@
 # Windows Hello Fix v2.0 — Architecture
 
-> Documentation-only. Describes the **current** extracted source under `src/ui/`. No code was modified.
+> Documentation-only. Describes the **current** extracted source under `src/core/`. No code was modified.
 
 ## Reference implementation relationship
 
@@ -8,13 +8,13 @@
 release-v2.0/MyForm.h  (1362-line monolith, known-good)
         │  mechanical extraction
         ▼
-src/ui/MyForm.h            declaration only (class, struct, globals `extern`)
-src/ui/MyForm_Camera.cpp   native camera pipeline + Disable/Enable/Restore members
-src/ui/MyForm_Config.cpp   config + diagnostic logging + target resolution
-src/ui/MyForm_Core.cpp     ctor / dtor / finalizer / InitializeComponent / MyForm_Load
-src/ui/MyForm_Events.cpp   WndProc (session / power / shutdown)
-src/ui/MyForm_System.cpp   command parsing + wake listener
-src/ui/MyForm_UI.cpp       FormClosing + btnToggle_Click
+src/core/MyForm.h            declaration only (class, struct, globals `extern`)
+src/core/MyForm_Camera.cpp   native camera pipeline + Disable/Enable/Restore members
+src/core/MyForm_Config.cpp   config + diagnostic logging + target resolution
+src/core/MyForm_Core.cpp     ctor / dtor / finalizer / InitializeComponent / MyForm_Load
+src/core/MyForm_Events.cpp   WndProc (session / power / shutdown)
+src/core/MyForm_System.cpp   command parsing + wake listener
+src/core/MyForm_UI.cpp       FormClosing + btnToggle_Click
 ```
 
 The extraction kept **`MyForm` as the single, central state owner**. No `ApplicationController`, `CameraController`, `EventController`, or `RecoveryController` was introduced. Only member-function *bodies* moved into separate translation units; the class, its members, its lifetime, and its behavioral authority are unchanged from `release-v2.0/MyForm.h`.
@@ -22,7 +22,7 @@ The extraction kept **`MyForm` as the single, central state owner**. No `Applica
 The root `MyForm.h` is a 3-line shim:
 ```cpp
 #pragma once
-#include "src/ui/MyForm.h"
+#include "src/core/MyForm.h"
 ```
 This preserves the original `#include "MyForm.h"` path used by `main.cpp` without altering it.
 
