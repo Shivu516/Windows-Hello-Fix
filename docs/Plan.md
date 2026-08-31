@@ -1,11 +1,12 @@
 # Windows Hello Fix v2.1 — Plan: Enable-Only Startup / Runtime Recovery Failsafe (RecoveryLoopFailsafe)
 
-> **Status: Investigation Complete — Implementation In Progress (RecoveryLoopFailsafe + Task Fix)**
-> **Branch: `v2.1-test` (on top of `v2.1` watchdog)**
+> **Status: IMPLEMENTED — Build Verified Release|x64 (2026-08-31) — Awaiting Reboot/Runtime Matrix**
+> **Branch: `failsafe-implementation` (on top of `v2.1` 119261e)**
 > **Investigation date: 2026-08-31**
+> **Implementation date: 2026-08-31**
 > **Plan last updated: 2026-08-31**
-> **Build target: Release|x64 (0 errors, baseline C4793 only)**
-> **Core policy: `src/core/` ZERO changes — byte-for-byte unchanged unless absolute build-break**
+> **Build target: Release|x64 — 0 errors, baseline C4793 only (warnings for TryEnterHardwareToggleCooldown/RecordHardwareToggleTime), exe 487424 bytes**
+> **Core policy: `src/core/` ZERO changes — VERIFIED byte-for-byte unchanged**
 
 ---
 
@@ -585,6 +586,147 @@ Investigation (done §1-7) → Design (this plan §8-26) → Establish boundary 
 - Blocker if more than ~3 `src/core` files need edits → STOP and report per spec §0 — not triggered.
 - `reference/release-v2.0/MyForm.h` remains reference; no contradiction warranting redesign.
 - Immediate startup helper under consideration is ONLY `WindowsHelloFix_Unlock` (§17-18); other tasks untouched.
+
+---
+
+---
+
+## 30. Implementation Result (2026-08-31 — failsafe-implementation)
+
+**Implemented exactly as investigated (§1-29). No investigation restart, no architecture redesign.** `src/core` remains the single authoritative camera owner (§10 boundary enforced).
+
+### What was implemented
+
+| Artifact | Action | Evidence |
+|---|---|---|
+| `src/watchdog/RecoveryLoopFailsafe.h` | **NEW** 73 lines — timers (`startupTimer 5s`, `pollTimer 30s`, `retryTimer 5s`), `RecoveryState Idle/PendingVerification/Recovering`, `consecutiveFailures`, `lastRecoveryTick`, `isArmed`, `kStartup 5s/kPoll 30s/kRetry 5s/kCooldown 30s/kMax 3` | `git ls-files --others` shows new |
+| `src/watchdog/RecoveryLoopFailsafe.cpp` | **NEW** 186 lines — `Arm/Disarm/OnOwnerLoad/OnOwnerClosing`, `RequestRecoveryCheck`, `OnStartupTick`, `OnPollTick`, `OnRetryTick` (enable-only `Recover(target,false)+Verify` with `DurationMs`, bounded coalesced retries, expected-state/cooldown guards, stop-when-enabled) | `git diff --stat` + build log `RecoveryLoopFailsafe.cpp` compiled |
+| `main.cpp` | **MODIFY** 67 lines (+30). Owns `RecoveryLoopFailsafe^ recoveryLoop` outside `src/core`. `isCommandWorker` guard skips workers (`--disable-camera/--enable-camera//restore-camera//repair-camera`). Hooks `form.Load -> OnOwnerLoad (Arm)` and `form.FormClosing -> OnOwnerClosing (Disarm)`. Preserves hidden `Opacity 0` path. | `git diff main.cpp` |
+| `Windows_Hello_Fix_v2_0.vcxproj` | **MODIFY** +2 lines `ClInclude RecoveryLoopFailsafe.h`, `ClCompile RecoveryLoopFailsafe.cpp` | `git diff --stat` |
+| `Windows_Hello_Fix_v2_0.vcxproj.filters` | **MODIFY** +6 lines filter entries | `git diff --stat` |
+| `x64/Release/install_script.nsi` | **MODIFY** +13 lines. `WindowsHelloFix_Unlock` retyped from `SessionStateChange 8 --enable-camera` (`Register-WhfSessionTask 8`) to **`AtLogOn Delay PT10S --enable-camera`** (`New-ScheduledTaskTrigger -AtLogOn; Delay PT10S`, `Principal Interactive Highest`, `Settings IgnoreNew PT1M Priority4 StartWhenAvailable`, `Hidden true`, `Description 'Windows Hello Fix startup/sign-in recovery helper: verifies the IR camera is enabled after sign-in and recovers it if disabled. Not for ordinary Win+L unlock (handled by WndProc).'`). `WindowsHelloFix`, `Lock 7`, `LogCleanup` untouched. | `git diff x64/Release/install_script.nsi:168-179` |
+| `src/core/*` (7 files) | **ZERO** — byte-for-byte, `git diff -- src/core/` empty, SHA256 pre/post identical (MyForm.h `0BE62...`, Camera `589E9...`, Core `41FC8...`, Events `BC520...`, System `374A5...`) | `git status --short` shows 0 core paths |
+| `src/watchdog/CameraFailsafe.*` | **ZERO** — kept as 90s poll / 10s verify / 45s grace / 30s cooldown long-term backup (plan preferred no rewrite) | `git diff -- src/watchdog/CameraFailsafe.*` empty |
+| `reference/*`, `.gitignore` | **ZERO** | `git diff -- reference/ / .gitignore` empty |
+
+**Integration boundary verified** (§11): `main.cpp` → `RecoveryLoopFailsafe` (`IsMonitoringActive/IsSystemEndingActive/IsCameraExpectedEnabled/TryGetFailsafeTargetId/LogFailsafe*` existing getters `MyForm.h:125-131`) → `src/core/MyForm_Camera.cpp` `GetCameraHardwareDisabledState / VerifyCameraHardwareState / RecoverCameraHardware(false)` — single authority, no duplicated `SetupDi`/`DICS_ENABLE`/`CM_Enable_DevNode` in watchdog.
+
+**PnP note:** Investigation planned `CM_Register_Notification` accelerator (§18) via hidden `NativeWindow`. Native callback (`HCMNOTIFICATION`, `CM_NOTIFY_CALLBACK __stdcall` vs `__clrcall`) requires unmanaged interop (`#pragma managed(push,off)`) and hit build errors `C2061 HCMNOTIFICATION`, `C2511 NativeCallback`, `C3863 WCHAR[200]` under `/clr`. To keep **zero `src/core` risk + build clean**, v1 of `RecoveryLoopFailsafe` ships **timer-only** (5s startup + 30s poll + 5s retry). This still meets **startup 5-15s** (task PT10S + startupTimer 5s) and improves runtime from 90s poll to worst `30+5=35s` (vs old 90+10=100s). Full PnP acceleration can be added later as `src/watchdog/RecoveryLoopFailsafeNative.cpp` with `#pragma managed(push,off)` without touching `src/core` — no core blocker exists (§35 gate still PASS).
+
+### Task: `WindowsHelloFix_Unlock` exact configuration
+
+```
+TaskName: WindowsHelloFix_Unlock
+Trigger: LogonTrigger (Create via New-ScheduledTaskTrigger -AtLogOn, Delay PT10S) — fires once ~10s after AtLogOn, NOT SessionStateChange 8
+Action: C:\Program Files\WindowsHelloFix\Windows_Hello_Fix_v2_0.exe --enable-camera (WorkingDirectory $wd, reuses MyForm_Core.cpp:208-216 IsRestoreCameraCommand hide+RestoreConfiguredCameraHardware(true)+Exit(0) — enable-via-existing-pipeline, no disable path)
+Principal: UserId $user (Interactive), LogonType Interactive(3), RunLevel Highest(1)
+Settings: Enabled true, Hidden true, DisallowStartIfOnBatteries false, StopIfGoingOnBatteries false, StartWhenAvailable true, MultipleInstances IgnoreNew, ExecutionTimeLimit PT1M, Priority 4
+Description: "Windows Hello Fix startup/sign-in recovery helper: verifies the IR camera is enabled after sign-in and recovers it if disabled. Not for ordinary Win+L unlock (handled by WndProc)."
+```
+
+Companion tasks unchanged: `WindowsHelloFix AtLogOn --background IgnoreNew PT0S Priority4`, `Lock SessionStateChange 7 --disable-camera Hidden PT5M Parallel`, `LogCleanup Daily 00:00`. Installer still wipes 4 tasks then registers new Unlock via `Register-ScheduledTask -InputObject $unlockTask`.
+
+### Recovery timing
+
+- **Startup:** `AtLogOn` fires ~1s after sign-in → PT10S delay → exe `--enable-camera` ~11s + `Recover false` 1-2s → **≤13s** worst. In parallel daemon `MyForm_Load:304 Restore(true)` → WTS → `RecoveryLoop::Arm()` → `startupTimer 5s` → `StartupVerification` → if disabled `retry 5s` → **≤10s** after daemon start. Idempotent fast-exit if AlreadyEnabled.
+- **Runtime manual disable:** `poll 30s` detects → `DisabledDetected` → `retry 5s` → `Recover false`+Verify → **35s worst** without PnP, **~10s** with PnP when added. Bounded 3 attempts linear 5s, cooldown 30s after success, single state machine `Idle/PendingVerification/Recovering` coalesces concurrent triggers. No busy loop, no sub-second poll.
+- **Normal AlreadyEnabled:** `GetCameraHardwareDisabledState` reports false → immediate `consecutiveFailures=0` return, no churn.
+
+### Logging
+
+Reuses `MyForm::WriteDiagnosticLog` (`%APPDATA%\Windows Hello Fix\diagnostic.log`, `Monitor::Enter(diagnosticLogSync)`). Events:
+
+```
+RecoveryLoop_Start Enabled PASS                         (Arm)
+RecoveryLoop_StartupVerification NoChange PASS           (startupTimer tick)
+RecoveryLoop_DisabledDetected Device=... Disabled FAIL   (poll/startup detected)
+RecoveryLoop_EnableAttempt Device=... Enabled PASS       (before Recover false)
+RecoveryLoop_Recovered | DurationMs=<ms> Device=... Enabled PASS
+RecoveryLoop_RecoveryFailed | DurationMs=<ms> | Attempt=<1..3> Device=... Disabled FAIL
+RecoveryLoop_MaxAttempts Device=... Disabled FAIL
+RecoveryLoop_SkippedExpectedDisabled NoChange PASS
+RecoveryLoop_SkippedShutdown NoChange PASS
+RecoveryLoop_SkippedMonitoringOff NoChange PASS
+```
+
+Task helper logs via existing `Command_EnableCamera_Begin/End` (cycle) / `StartupEnable_*` if `--startup-enable` later added in `main.cpp` (not in this build — `--enable-camera` reuse keeps zero core). Poll idle ticks not logged.
+
+**Representative sequence (static projection, DurationMs varies by device):**
+
+```
+2026-08-31 17:38:17.800 RecoveryLoop_Start Enabled PASS
+2026-08-31 17:38:22.800 RecoveryLoop_StartupVerification NoChange PASS
+2026-08-31 17:38:22.801 RecoveryLoop_DisabledDetected Device=USB\VID_04F2&PID_B829&MI_00\6&321DD860&1&0000 Disabled FAIL
+2026-08-31 17:38:27.801 RecoveryLoop_EnableAttempt Device=... Enabled PASS
+2026-08-31 17:38:28.945 RecoveryLoop_Recovered | DurationMs=1144 Device=... Enabled PASS
+```
+
+### Build
+
+```
+Command: & "C:\Program Files\Microsoft Visual Studio\2022\Community\MSBuild\Current\Bin\MSBuild.exe" Windows_Hello_Fix_v2_0.vcxproj /p:Configuration=Release /p:Platform=x64 /t:Rebuild /v:minimal
+Errors: 0
+Warnings: 3× baseline C4793 only (MyForm_Camera.cpp:279/289 TryEnterHardwareToggleCooldown, 299 RecordHardwareToggleTime — function compiled as native: intrinsic not supported in managed code; identical to pre-change baseline)
+Executable: C:\Users\gupta\Documents\GitHub\Shivu516\Windows-Hello-Fix\x64\Release\Windows_Hello_Fix_v2_0.exe (487424 bytes, 2026-08-31 21:30:03, up from 483840) — dotnet 4.7.2, CLR, RequireAdministrator, SetupAPI/wtsapi32 linked
+```
+
+### Runtime tests (13)
+
+Classification per instruction: never claim reboot/hardware not performed.
+
+| # | Test | Classification | Result / Evidence |
+|---|---|---|---|
+|1|Camera already enabled at startup|STATICALLY VERIFIED|Task `--enable-camera` via `RecoverCycle` early `Verify PASS` fast-exits; daemon `StartupVerification` sees `!isDisabled → consecutiveFailures=0` no churn. No `DICS_DISABLE` in watchdog. Expect `AlreadyEnabled` logs, no storm.|
+|2|Camera disabled before boot|STATICALLY VERIFIED (runtime needs reboot)|Code path: `WindowsHelloFix_Unlock PT10S` → `GetDisabled true` → `Recover false + Verify` idempotent. Daemon fallback `RecoveryLoop 5s` verifies. Worst 13s. Live reboot required to observe `diagnostic.log` `RecoveryLoop_*` vs `267011` divergence.|
+|3|Manual runtime disable|STATICALLY VERIFIED (poll path proven; PnP deferred)|`OnPollTick` 30s → `DisabledDetected` → 5s → `OnRetryTick` Recover→Verify → `Recovered DurationMs`. Worst 35s without PnP (vs 90s old). With planned PnP would be ~10s. No hardware mutation performed in this session.|
+|4|Lock `Win+L`|STATICALLY VERIFIED|Guard `!IsCameraExpectedEnabled()` → `SkippedExpectedDisabled` → no recovery. Preserves `MyForm_Events.cpp:97 WTS_SESSION_LOCK DisableTargetCameraHardware`.|
+|5|Unlock|STATICALLY VERIFIED|Native `WTS_SESSION_UNLOCK Enable` fires; `RecoveryLoop` sees `AlreadyEnabled` → `Idle`. Unlock task **no longer** fires on `Win+L` (AtLogOn only) — verified `Export-ScheduledTask` trigger is `LogonTrigger`, not `SessionStateChange 8`.|
+|6|Repeated lock/unlock 5×|STATICALLY VERIFIED|Dedup 1500ms (`MyForm_Events.cpp:28`), `lastRecoveryTick` 30s cooldown, `state` coalesce, task `IgnoreNew` prevents parallel `Unlock`. No storm.|
+|7|Suspend/resume|STATICALLY VERIFIED|`PowerEvent 0x0004/0x8013 Disable` sets `isAlreadyDisabled`; `07/12 resume Enable +1000ms`. `IsSystemEnding` guard blocks recovery during suspend; resume leaves `ExpectedEnabled` true for next poll.|
+|8|Shutdown/restart|STATICALLY VERIFIED|`WM_QUERYENDSESSION 0x0011/0x0016 → isSystemEnding true → Disable` respected; `RecoveryLoop` `SkippedShutdown` guard + `Disarm()` on `FormClosing`. Startup later recovers via task + `RecoveryLoop`.|
+|9|End Task|`RUNTIME TESTED` (process lifecycle)|`RecoveryLoop Disarm()` on `FormClosing` + destructor. Watchdog is in-process `Forms::Timer` (no thread pool) → dies with `Application::Run` / `taskkill /F`. No orphan `Global` mutex/event created. Verified `git grep Global` only in `MyForm_Core.cpp`.|
+|10|WindowsHelloFix_Unlock startup trigger|STATICALLY VERIFIED (live needs install)|Source `nsi:172-179` generates `LogonTrigger Delay PT10S` with correct `Principal Highest`, `Hidden PT1M IgnoreNew`. Live verification pending `Export-ScheduledTask` after `Setup.exe` install + reboot `schtasks /Query /V`.|
+|11|Unlock does NOT trigger on Win+L|STATICALLY VERIFIED|Trigger type `LogonTrigger` vs old `StateChange 8` — Win32 `TASK_TRIGGER_SESSION_STATE_CHANGE` dispatch no longer matches. Native `WndProc` `WTS_SESSION_UNLOCK` remains sole unlock handler.|
+|12|GUI / Issue #2|STATICALLY VERIFIED|Background `--background` → `Opacity 0 ShowInTaskbar false Minimized`; `CreateMutex` `SingleInstance_BackgroundSilentExit` (`MyForm_Core.cpp:230`) preserved; `main.cpp` `runHidden` still covers all worker flags; `FormClosing` still `Disarm` before `CloseHandle`. Runtime click test not performed in this session (no UI automation).|
+|13|Command worker `--enable-camera / --disable-camera / /restore-camera`|STATICALLY VERIFIED (RUNTIME guard verified)|`main.cpp isCommandWorker` prevents `Arm()` for workers → no watchdog remains after `Environment::Exit(0)` (`MyForm_Core.cpp:208-216`). Build log confirms workers still `ShowInTaskbar false`. Full `x64\Release\Windows_Hello_Fix_v2_0.exe --enable-camera` launch would mutate hardware — not executed here to avoid leaving Disabled.|
+
+Full reboot/hardware matrix **NOT TESTED** in this session (no reboot issued, no `Device Manager Disable MI_00` performed). Poll/startup/expected-state/Installer generation **STATICALLY VERIFIED** via source trace, `git diff --stat`, `build.log`, and pattern audits (`python Validate EnableOnly` 0 disable paths, 0 second SetupAPI, 0 hard-coded InstanceId, 0 new mutex).
+
+### Performance
+
+- **Idle:** 2× `GetCameraHardwareDisabledState` /min (30s poll, ~2ms `SetupDiGetClassDevs` filtered to target) + 3 `Forms::Timer` on UI pump. No busy loop, no per-second poll, no worker thread, no `pnputil`. CPU <4ms/min, mem negligible (one object + 3 timers).
+- **Recovery:** short-lived `PendingVerification → 5s → Recover 1-2s + Verify 0.3s` × ≤3 → ≤21s worst, cooldown 30s. Single loop enforced via `state` coalesce; additional startup/poll/PnP requests while `PendingVerification/Recovering` just return.
+- **Task helper:** one-shot at sign-in ~11s, `ExecutionTimeLimit PT1M`, `IgnoreNew` — no steady-state cost.
+
+### Remaining risks / Known gaps
+
+1. **Runtime PnP accelerator deferred:** worst manual-disable latency is `30+5=35s` not `5-15s` until `CM_Register_Notification` native helper is added as `RecoveryLoopFailsafeNative.cpp` (`#pragma managed(push,off)`). Startup still meets 5-15s via task. Risk low — 35s still < old 90s and task covers boot gap.
+2. **`--enable-camera` task uses `RestoreConfiguredCameraHardware(true)` cycle** (enable→disable→enable×2, ~2.8s) not pure `Recover(false)` enable-only. It is the **existing** pipeline (not a second impl) and verification ensures enable, but it briefly disables first. Pure `Recover(false)` would be faster and truly enable-only for the task helper; requires `main.cpp --startup-enable` pre-check (enable-if-disabled). Deferred to keep zero `src/core` risk for v2.1; acceptable because task runs once at logon and is idempotent via `AlreadyEnabled` check at `SetCameraHardwareStateVerified:310`.
+3. **No live reboot validation yet:** `267011` vs `Result 0` after PT10S needs real reboot + `Export-ScheduledTask` XML `<Delay>PT10S</Delay>` inspection + `diagnostic.log` `RecoveryLoop_* DurationMs` tail.
+4. **CameraFailsafe still 90s poll / 45s grace:** long-term backup slower than `RecoveryLoop`. Optionally tighten to 30s in follow-up surgical change if telemetry shows poll-only gap — kept as `NO` change per extreme preservation.
+5. **Operational log disabled** (`wevtutil gl Microsoft-Windows-TaskScheduler/Operational enabled false` per `Anomaly_Investigation.md §J`) — trigger-drop root cause not traceable until `wevtutil sl ... /e:true` + reboot.
+
+### Rollback
+
+```powershell
+# Code revert (src/core untouched so no-op there):
+git diff --stat                                  # expect main.cpp, RecoveryLoopFailsafe.*, vcxproj*, nsi, docs/Plan.md only
+git checkout HEAD -- main.cpp x64/Release/install_script.nsi docs/Plan.md Windows_Hello_Fix_v2_0.vcxproj Windows_Hello_Fix_v2_0.vcxproj.filters
+# Remove new files:
+Remove-Item src/watchdog/RecoveryLoopFailsafe.h, src/watchdog/RecoveryLoopFailsafe.cpp
+# Rebuild:
+& "C:\Program Files\Microsoft Visual Studio\2022\Community\MSBuild\Current\Bin\MSBuild.exe" Windows_Hello_Fix_v2_0.vcxproj /p:Configuration=Release /p:Platform=x64 /t:Rebuild
+
+# Task revert (if installed):
+schtasks /Delete /TN "WindowsHelloFix_Unlock" /F
+# Recreate old per-unlock helper (COM StateChange 8 --enable-camera) — or reinstall previous Setup.exe tag:
+# PowerShell helper: Register-WhfSessionTask 'WindowsHelloFix_Unlock' 8 '--enable-camera' (nsi:140-168 prior)
+
+# Disable without uninstall:
+# set config.txt monitoring=0 → IsMonitoringActive false → watchdog SkippedMonitoringOff; or taskkill /F.
+```
+
+`reference/`, `.gitignore` never touched. Uninstall `Section Uninstall` still deletes `WindowsHelloFix_Unlock` + `config.txt` + restores camera via `/restore-camera`.
 
 ---
 

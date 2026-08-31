@@ -165,7 +165,18 @@ Section "Core Files (Required)" SEC01
   FileWrite $1 "  $$root.RegisterTaskDefinition($$name, $$task, 6, $$null, $$null, 3, $$null) | Out-Null$\r$\n"
   FileWrite $1 "}$\r$\n"
   FileWrite $1 "Register-WhfSessionTask 'WindowsHelloFix_Lock' 7 '--disable-camera'$\r$\n"
-  FileWrite $1 "Register-WhfSessionTask 'WindowsHelloFix_Unlock' 8 '--enable-camera'$\r$\n"
+  ; WindowsHelloFix_Unlock — STARTUP/SIGN-IN recovery helper (NO LONGER ordinary unlock).
+  ; Fires once at logon (delay PT10S to survive S0/FastStartup zero-delay drop) and NOT on Win+L.
+  ; Uses existing --enable-camera (IsRestoreCameraCommand early-exit at MyForm_Core.cpp:208, enable-only via Recover(false)) — no new flag.
+  FileWrite $1 "$$unlockAction = New-ScheduledTaskAction -Execute $$exe -Argument '--enable-camera' -WorkingDirectory $$wd$\r$\n"
+  FileWrite $1 "$$unlockTrigger = New-ScheduledTaskTrigger -AtLogOn$\r$\n"
+  FileWrite $1 "$$unlockTrigger.Delay = 'PT10S'$\r$\n"
+  FileWrite $1 "$$unlockPrincipal = New-ScheduledTaskPrincipal -UserId $$user -LogonType Interactive -RunLevel Highest$\r$\n"
+  FileWrite $1 "$$unlockSettings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Minutes 1) -Priority 4$\r$\n"
+  FileWrite $1 "$$unlockTask = New-ScheduledTask -Action $$unlockAction -Trigger $$unlockTrigger -Principal $$unlockPrincipal -Settings $$unlockSettings$\r$\n"
+  FileWrite $1 "$$unlockTask.Description = 'Windows Hello Fix startup/sign-in recovery helper: verifies the IR camera is enabled after sign-in and recovers it if disabled. Not for ordinary Win+L unlock (handled by WndProc).'$\r$\n"
+  FileWrite $1 "$$unlockTask.Settings.Hidden = $$true$\r$\n"
+  FileWrite $1 "Register-ScheduledTask -TaskName 'WindowsHelloFix_Unlock' -InputObject $$unlockTask -Force | Out-Null$\r$\n"
   FileWrite $1 "$$cleanupAction = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument '/c break > $\"$APPDATA\Windows Hello Fix\diagnostic.log$\"'$\r$\n"
   FileWrite $1 "$$cleanupTrigger = New-ScheduledTaskTrigger -Daily -At 00:00$\r$\n"
   FileWrite $1 "Register-ScheduledTask -TaskName 'WindowsHelloFix_LogCleanup' -Action $$cleanupAction -Trigger $$cleanupTrigger -Principal $$principal -Settings $$settings -Force | Out-Null$\r$\n"

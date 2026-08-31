@@ -24,6 +24,9 @@
     <ClInclude Include="src\watchdog\CameraFailsafe.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="src\watchdog\RecoveryLoopFailsafe.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="resource.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -78,6 +81,9 @@
       <Filter>Source Files\src\core</Filter>
     </ClCompile>
     <ClCompile Include="src\watchdog\CameraFailsafe.cpp">
+      <Filter>Source Files\src\watchdog</Filter>
+    </ClCompile>
+    <ClCompile Include="src\watchdog\RecoveryLoopFailsafe.cpp">
       <Filter>Source Files\src\watchdog</Filter>
     </ClCompile>
   </ItemGroup>

@@ -23,6 +23,16 @@ Class Windows_Hello_Fix_v2_0.MyForm: AutoLayout, AnsiClass, Class, Public, Befor
     TryGetFailsafeTargetId(basic_string<wchar_t\,std::char_traits<wchar_t>\,std::allocator<wchar_t> >* IsImplicitlyDereferenced): PrivateScope, Public, HideBySig
     LogFailsafe(String, String, Boolean(HasFieldMarshal)): PrivateScope, Public, HideBySig
     LogFailsafeWithDevice(String, basic_string<wchar_t\,std::char_traits<wchar_t>\,std::allocator<wchar_t> >*, String, Boolean(HasFieldMarshal)): PrivateScope, Public, HideBySig
+Class Windows_Hello_Fix_v2_0.RecoveryLoopFailsafe: AutoLayout, AnsiClass, Class, Public, BeforeFieldInit
+    Void .ctor(Windows_Hello_Fix_v2_0.MyForm): PrivateScope, Public, HideBySig, SpecialName, RTSpecialName
+  Interfaces:
+    System.IDisposable
+  Methods:
+    Arm(): PrivateScope, Public, HideBySig
+    Disarm(): PrivateScope, Public, HideBySig
+    OnOwnerLoad(Object, EventArgs): PrivateScope, Public, HideBySig
+    OnOwnerClosing(Object, FormClosingEventArgs): PrivateScope, Public, HideBySig
+    Dispose(): PrivateScope, Public, Final, Virtual, HideBySig
 Class Windows_Hello_Fix_v2_0.CameraFailsafe: AutoLayout, AnsiClass, Class, Public, BeforeFieldInit
     Void .ctor(Windows_Hello_Fix_v2_0.MyForm): PrivateScope, Public, HideBySig, SpecialName, RTSpecialName
   Methods:

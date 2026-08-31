@@ -139,6 +139,7 @@
     </ClInclude>
     <ClInclude Include="src\core\MyForm.h" />
     <ClInclude Include="src\watchdog\CameraFailsafe.h" />
+    <ClInclude Include="src\watchdog\RecoveryLoopFailsafe.h" />
     <ClInclude Include="ProductionUtilities.h" />
     <ClInclude Include="resource.h" />
     <ClInclude Include="resource1.h" />
@@ -158,6 +159,7 @@
     <ClCompile Include="src\core\MyForm_System.cpp" />
     <ClCompile Include="src\core\MyForm_UI.cpp" />
     <ClCompile Include="src\watchdog\CameraFailsafe.cpp" />
+    <ClCompile Include="src\watchdog\RecoveryLoopFailsafe.cpp" />
   </ItemGroup>
   <ItemGroup>
     <Xml Include="WindowsHelloFix_TaskSchedule.xml" />
