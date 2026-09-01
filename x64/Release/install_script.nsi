@@ -2,7 +2,7 @@
 !include "LogicLib.nsh"
 
 ; --- Project Info ---
-Name "Windows Hello Fix v2.0"
+Name "Windows Hello Fix v2.1"
 OutFile "Windows_Hello_Fix_Setup.exe"
 InstallDir "$PROGRAMFILES64\WindowsHelloFix"
 RequestExecutionLevel admin
@@ -32,7 +32,7 @@ Function .onInit
   Pop $0
 
   ${If} $0 != 0
-    FindWindow $1 "#32770" "Windows Hello Fix v2.0 Setup"
+    FindWindow $1 "#32770" "Windows Hello Fix v2.1 Setup"
     ${If} $1 != 0
       ShowWindow $1 5
       BringToFront
@@ -103,7 +103,7 @@ Section "Core Files (Required)" SEC01
   ; Write registry configuration keys for Add/Remove Programs control interface
   SetRegView 64
   DeleteRegValue HKLM "Software\Microsoft\Windows\CurrentVersion\Run" "WindowsHelloFix"
-  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\WindowsHelloFix" "DisplayName" "Windows Hello Fix v2.0"
+  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\WindowsHelloFix" "DisplayName" "Windows Hello Fix v2.1"
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\WindowsHelloFix" "UninstallString" '"$INSTDIR\Uninstall.exe"'
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\WindowsHelloFix" "DisplayIcon" "$INSTDIR\WindowsHelloFix.ico"
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\WindowsHelloFix" "Publisher" "Shivu516"
