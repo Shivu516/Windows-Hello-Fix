@@ -1,3 +1,935 @@
+# Windows Hello Fix v2.1 — Plan: Updater System
+
+> **Status: DRAFT — Planning Complete 2026-09-01 — Implementation Pending Review**
+> **Branch: `failsafe-implementation` (on top of v2.1 1bfe79a)**
+> **Plan date: 2026-09-01**
+> **Previous plan preserved: Appendix A — RecoveryLoopFailsafe (IMPLEMENTED 2026-08-31)**
+> **Core policy: `src/core/` ZERO changes — `src/watchdog/` ZERO changes — TARGETED FOR UPDATER**
+
+---
+
+## 0. Repository State (recorded 2026-09-01)
+
+```
+Branch:          failsafe-implementation
+Commit:          1bfe79a980419ca607204e091df8e815f7528558 (Bump product version to 2.1)
+Working tree:    clean
+Remote:          https://github.com/Shivu516/Windows-Hello-Fix
+Tags:            v1.0.0, v2.0.0
+Executable:      Windows_Hello_Fix_v2_0.exe (Stable name, gitignored)
+Installer:       x64/Release/Windows_Hello_Fix_Setup.exe (NSIS, gitignored binary, 681623 bytes for v2.0.0)
+Protected:       src/core/* (6 files) + src/watchdog/* (4 files) — verified unchanged
+Previous plan:   69551 bytes — RecoveryLoopFailsafe IMPLEMENTED 2026-08-31
+```
+
+`git ls-files`: `main.cpp`, `MyForm.h` (shim), `src/core/*` (6), `src/watchdog/*` (4), `Windows_Hello_Fix_v2_0.*`, `x64/Release/install_script.nsi`.
+
+---
+
+## 1. Current Application Architecture
+
+### High-level
+```
+main.cpp → MyForm (single central state owner, src/core)
+  ├── MyForm_Core.cpp   ctor/dtor/InitializeComponent/MyForm_Load
+  ├── MyForm_Camera.cpp SetupAPI/CfgMgr pipeline
+  ├── MyForm_Config.cpp config.txt + diagnostic.log + target resolution
+  ├── MyForm_Events.cpp WndProc (shutdown/power/session)
+  ├── MyForm_System.cpp command parsing + wake listener
+  ├── MyForm_UI.cpp     FormClosing + btnToggle_Click
+  └── watchdogs (owned by main.cpp, outside src/core)
+       ├── CameraFailsafe      90s poll + 10s verify + 45s grace
+       └── RecoveryLoopFailsafe 5s startup + 30s poll + 5s retry
+```
+
+### Lifecycle (`src/core/MyForm_Core.cpp:182-429`, `main.cpp:7-67`)
+```
+Boot → Task WindowsHelloFix (--background) → main() → MyForm form
+  → Opacity=0/ShowInTaskbar=false if --background/--disable/--enable-camera
+  → RecoveryLoopFailsafe created in main.cpp iff !isCommandWorker
+  → Application::Run → MyForm_Load
+    → Startup_Context log → IsRestoreCameraCommand? → Hide → RestoreConfiguredCameraHardware(true) → Exit(0)
+    → IsDisableCameraCommand? similarly → Exit(0)
+    → CreateMutex Global\WindowsHelloFix_AppMutex + hWakeupEvent
+    → RestoreConfiguredCameraHardware(true) cycle (Sleep 350/900/500 + Verify 3×100ms)
+    → RegisterPowerSettingNotification(Lid/Button)
+    → ScanSystemCameras(DIGCF_ALLCLASSES|PRESENT) → LoadConfigState → EnableTarget
+    → dropdown + MI_00 auto → shouldAutoStart → isMonitoring, background hide
+    → backgroundWorker Thread (ListenForWakeupSignal)
+    → WTSRegisterSessionNotification 6×500ms → Arm CameraFailsafe + RecoveryLoopFailsafe via form.Load
+  → steady state: WndProc, btnToggle, FormClosing (hide-to-background)
+  → dtor/finalizer: Disarm → if isSystemEnding Disable else Enable → save config → cleanup
+```
+
+State ownership: `MyForm` owns `isMonitoring`, `isBackgroundMode`, `isSystemEnding`, `cameraExpectedDisabled`, `selectedInstanceId` (`wstring*`), `cachedCameras`, `hAppMutex/hWakeupEvent`, `hLidNotification/hButtonNotification`, `backgroundWorker`, controls, `diagnosticLogSync`. Globals `g_lastHardwareToggleTick` etc. in `MyForm_Camera.cpp`. Threading: UI pump + one background WaitForSingleObject thread only Invoke; watchdogs use Forms::Timer on pump — no thread pool.
+
+Protected boundary: `src/core/` + `src/watchdog/` HARD PROTECTED. `main.cpp` is outside `src/core` per `AGENTS.md §1` — sole allowed seam. Updater must be `src/updater/` island with no edge into camera logic.
+
+---
+
+## 2. Existing Version / Release Mechanism
+
+| Item | Evidence | Value |
+|---|---|---|
+| Manifest | `app.manifest:3` | `assemblyIdentity version="2.1.0.0" name="Windows_Hello_Fix_v2_1" level=requireAdministrator` |
+| Window title | `src/core/MyForm_Core.cpp:174` | `Text = L"Windows Hello Fix v2.0"` — stale (manifest 2.1 vs title 2.0) |
+| VERSIONINFO | `*.rc` | NONE — no `VS_VERSIONINFO`, no `GetFileVersionInfo` source |
+| Exe name | `install_script.nsi:7`, `main.cpp:19` | `Windows_Hello_Fix_v2_0.exe` — stable across v1→v2; hardcoded 6+ places |
+| Installer | `install_script.nsi:6 OutFile` | `Windows_Hello_Fix_Setup.exe` in `x64/Release/` (gitignored) |
+| Config | `MyForm_Config.cpp:62-98` | `config.txt` only `monitoring=` + `device=` — no version |
+| Tag | `git tag` + GitHub API | `v1.0.0`, `v2.0.0` — strict `vMAJOR.MINOR.PATCH` |
+| Release name | GitHub API `name` | `Windows Hello Fix v2.0` (human) vs `tag_name v2.0.0` (machine) |
+
+Finding: No centralized Version class; updater introduces `src/updater/UpdateVersion` as sole authority with `IsUpdaterSupported() => >=v2.1.0` and `main.cpp` fixes title post-construct.
+
+---
+
+## 3. Existing Installer Mechanism
+
+`x64/Release/install_script.nsi:1-268` — NSIS, `RequestExecutionLevel admin`:
+
+- Pre-checks: `CreateMutex WindowsHelloFixSetup_Mutex`; `HKLM\...\Uninstall\WindowsHelloFix` prompt.
+- Install: `taskkill /F /IM Windows_Hello_Fix_v2_0.exe /T` (1500ms) → `File exe+metagen+ico` → `Unblock-File` → `CreateDirectory %APPDATA%\Windows Hello Fix` → `Exec '"$INSTDIR\...exe" /restore-camera'` (3000ms) → Start Menu shortcuts → registry `HKLM64\...\Uninstall\WindowsHelloFix` (`DisplayName Windows Hello Fix v2.1`) → remove `RUNASADMIN` flags → task generation via `$PLUGINSDIR\RegisterWindowsHelloFixTasks.ps1`.
+- Tasks:
+
+| Task | Trigger source | Effect |
+|---|---|---|
+| `WindowsHelloFix` | `New-ScheduledTaskTrigger -AtLogOn --background` | daemon at logon |
+| `WindowsHelloFix_Lock` | `COM Triggers.Create(11) StateChange=7 --disable-camera` | lock→disable |
+| `WindowsHelloFix_Unlock` | `New-ScheduledTaskTrigger -AtLogOn Delay PT10S --enable-camera` (mutated from StateChange=8) | startup helper only, NOT Win+L |
+| `WindowsHelloFix_LogCleanup` | `Daily 00:00 cmd /c break > diagnostic.log` | log rotation |
+| All: `Principal -UserId $user -LogonType Interactive -RunLevel Highest`, `Hidden/AllowStartIfOnBatteries/DontStopIfOnBatteries/StartWhenAvailable/MultipleInstances/Priority4`. |
+
+- Uninstall: `Exec /restore-camera` → `taskkill` → second `/restore-camera` → `schtasks /Delete /TN "WindowsHelloFix*"` (5) → registry delete → `Delete $INSTDIR\*` → `Delete %APPDATA%\Windows Hello Fix\{config.txt,diagnostic.log}`.
+
+Load-bearing: Installer **is authority** for placement, task registration, registry, unblock. Proven file-lock release is `taskkill /F /IM` + `Sleep 1500` → then `File`. Exe path stable `C:\Program Files\WindowsHelloFix\Windows_Hello_Fix_v2_0.exe`. `MUI_FINISHPAGE_RUN` restarts app.
+
+---
+
+## 4. Existing GUI Architecture
+
+`MyForm_Core.cpp:119-180 InitializeComponent`:
+
+- `ClientSize 430×240`, `FormBorderStyle FixedDialog`, `MaximizeBox=false MinimizeBox=false`, `CenterScreen`.
+- `deviceDrop ComboBox DropDownList @(25,75) 380×31`
+- `btnToggle Button Bold @(25,130) 380×45` — `Start/Stop Monitoring Service`
+- `lblTitle Label Bold @(20,25) "Select Target RGB Sensor"`
+- `lblStatus Label Gray @(25,195) "Status: Service Stopped/Running"` (`AutoSize=true`, `Green/Gray`)
+- `Load` + `FormClosing` wired; `Icon` from `IDI_ICON1`.
+
+Empty bottom-right: `lblStatus y=195` (~13px tall) → Client bottom `240` → **~30-45px vertical padding** unused — concept icon belongs at `(392,192) 22×22` right of `lblStatus`.
+
+- `MyForm_UI.cpp:5-22` FormClosing cancels UserClosing → Hide+ShowInTaskbar=false + isBackgroundMode toast; `MyForm_System.cpp:43-52` BringWindowToFrontDelegate restores `Opacity=1 / Show/Visible/ShowInTaskbar/Normal`.
+- Tech: WinForms C++/CLI (`System::Windows::Forms`), hand-written InitializeComponent (4 lines per control).
+- Preferred seam: tiny owner-drawn `PictureBox`/`Panel` 22×22 at `(ClientWidth-28, 195)` — right of `lblStatus`, inside `Controls`, wired via `Updater::StateChanged` + `BeginInvoke`. No resize, no other control moves.
+
+---
+
+## 5. Current Startup / Exit / File-Lock Behaviour
+
+- **Startup variants:** `WindowsHelloFix --background` (Task, `Opacity 0` via `main.cpp:28-33`), interactive double-click (`Opacity 1`), command workers `--enable/disable-camera /restore-camera /repair-camera` (`MyForm_Load:208-228` Hide → Restore → Exit(0)), `Global\Mutex` second-instance wake via `Global\WakeupEvent` + `ListenForWakeupSignal`.
+- **Exit:** `FormClosing(UserClosing)` hides; only `Stop Monitoring` or `taskkill` truly exits. `isSystemEnding` (`WndProc 0x0011/0x0016` + `~MyForm`) `DisableTargetCameraHardware(true)` leaves Disabled for next boot (covered by `Restore(true)` + watchdogs).
+- **Replace exe while running:** Yes via installer. `taskkill /F /IM` + `Sleep 1500` releases Mutex + image lock; `File $INSTDIR\Windows_Hello_Fix_v2_0.exe` then overwrites. Direct File::Move without kill fails `ERROR_SHARING_VIOLATION`. Self-overwrite without helper impossible while mapped.
+- **Task Scheduler dependence:** All 4 tasks use absolute `Path=$exe` + `WorkingDirectory=$wd` (`PROGRAMFILES64\WindowsHelloFix`). Post-update path identical, so Tasks do not need re-registration if installer re-runs its script (`Force|Out-Null` idempotent). Standalone exe replacement without installer would also preserve path but skip unblock/registry fix — installer preferred.
+
+---
+
+## 6. GitHub Release Architecture
+
+### Live verification 2026-09-01 — `GET https://api.github.com/repos/Shivu516/Windows-Hello-Fix/releases`
+
+Releases:
+- `v2.0.0` `id 335771490` `prerelease false` `draft false` `published 2026-06-08` `asset Windows_Hello_Fix_Setup.exe size 681623 content_type application/x-msdownload digest sha256:0443c31e... browser_download_url https://github.com/Shivu516/Windows-Hello-Fix/releases/download/v2.0.0/Windows_Hello_Fix_Setup.exe html_url https://github.com/Shivu516/Windows-Hello-Fix/releases/tag/v2.0.0`
+- `v1.0.0` `id 316865451` asset `Windows_Hello_Fix_v1.0.zip`
+- Tags strict `vMAJOR.MINOR.PATCH`.
+
+### Endpoint design
+
+| Need | Endpoint | Notes |
+|---|---|---|
+| Release list (explorer) | `GET /repos/{owner}/{repo}/releases?per_page=20&page=1` | `ETag`/`Last-Modified` → `If-None-Match` → `304` |
+| Latest Stable | `GET /repos/{owner}/{repo}/releases/latest` | auto excludes prerelease/draft |
+| Latest including prerelease | `GET /releases?per_page=1` filtered client-side | No GitHub channel |
+| Tags fallback | `GET /repos/{owner}/{repo}/tags?per_page=100` | Only if prerelease flag missing |
+
+### Fields captured
+
+`id, tag_name, target_commitish, name, draft, prerelease, created_at, published_at, html_url, body, assets[] {name,label,content_type,size,download_count,browser_download_url,digest}, tarball_url, zipball_url` plus response headers `ETag`, `Last-Modified`, `X-RateLimit-*`.
+
+### Headers
+
+`Accept: application/vnd.github+json` + `User-Agent: WindowsHelloFix-Updater/1.0 (https://github.com/Shivu516/Windows-Hello-Fix)` (required) + optionally `X-GitHub-Api-Version: 2022-11-28` + cache `If-None-Match`.
+
+### Library
+
+**Managed `System.Net.Http.HttpClient`** (add `System.Net.Http` reference; no native WinHTTP/WinINet lib, no third-party). One static HttpClient per process, TLS 1.2+ via net472 default.
+
+---
+
+## 7. Release Metadata Model
+
+```cpp
+// src/updater/UpdateModels.h
+enum class UpdateChannel { Stable, Beta, PreRelease, Unknown };
+
+ref struct ReleaseAsset {
+    String^  name;                // Windows_Hello_Fix_Setup.exe
+    String^  browserDownloadUrl;  // https://github.com/.../download/v2.0.0/...
+    String^  contentType;         // application/x-msdownload
+    long long size;               // 681623
+    String^  sha256;              // parsed from digest "sha256:0443..." (null for old)
+    int      downloadCount;
+};
+
+ref struct GitHubRelease {
+    long long id;                 // 335771490
+    String^  tag;                 // v2.0.0
+    UpdateVersion^ version;       // parsed semantic
+    String^  name;                // Windows Hello Fix v2.0
+    String^  htmlUrl;             // https://github.com/.../releases/tag/v2.0.0
+    String^  body;                // markdown notes
+    DateTime publishedAt;         // 2026-06-08T06:13:00Z
+    bool     isPrerelease;
+    bool     isDraft;             // filtered out
+    UpdateChannel channel;        // derived (§8)
+    List<ReleaseAsset^>^ assets;
+    bool     hasUpdaterSupport;   // version >= v2.1.0 (§17)
+};
+```
+
+Drafts never shown. Authoritative asset name is `Windows_Hello_Fix_Setup.exe` (observed). Unknown asset names displayed but Update blocked until allow-list match.
+
+---
+
+## 8. Release Channel Design
+
+GitHub has no `Stable/Beta/PreRelease` — only `prerelease` bool + `tag`/`name`. Channels are client-side filter.
+
+| Release state | `prerelease` | `tag` pattern (lowercased) | Derived channel |
+|---|---|---|---|
+| Stable (today v2.0.0) | `false` | `vMAJOR.MINOR.PATCH` no suffix (`v2.0.0`, `v2.1.0`) | `Stable` |
+| Beta (future) | `true` | contains `-beta`, `-b`, `.beta` or name `Beta` (`v2.2.0-beta.1`) | `Beta` |
+| Pre-Release / RC | `true` | contains `-rc`, `-pre`, `-preview`, `-alpha`, `.rc.` (`v2.2.0-rc.1`) | `PreRelease` |
+| Unknown prerelease | `true` | none of above | `PreRelease` (conservative) |
+
+Stable defined as `prerelease==false && no prerelease segment` to survive mis-tagging; any `prerelease==true` never Stable.
+
+**User channel affects:**
+
+```
+Stable      → latest = max Stable
+Beta        → latest = max {Stable ∪ Beta}
+PreRelease  → latest = max {Stable ∪ Beta ∪ PreRelease}  (all non-draft)
+```
+
+Notification dot fires only if `latestForSelectedChannel.version > installedVersion` and not downgrade-excluded. Stored in `%APPDATA%\Windows Hello Fix\updater_cache.json` `{channel,lastCheckUtc,etag,cachedReleases}`.
+
+---
+
+## 9. Version Comparison
+
+Define `src/updater/UpdateVersion` as sole authority (no `VERSIONINFO` exists):
+
+```cpp
+ref class UpdateVersion : IComparable<UpdateVersion^> {
+    int major, minor, patch;
+    String^ prereleaseLabel; // "beta.1", "rc.1", null for stable
+    int     prereleaseNumber;
+    String^ rawTag; // v2.1.0
+    static UpdateVersion^ Parse(String^ tag);
+    static bool TryParse(String^ tag, UpdateVersion^% out);
+    int CompareTo(UpdateVersion^ other);
+    bool IsUpdaterSupported() { return major > 2 || (major==2 && minor>=1); } // v2.1+
+    String^ ToDisplay();
+};
+```
+
+**Ordering (SemVer 2.0 + HelloFix):**
+1) major, then minor, then patch numerically (missing = 0; `v2.1 == v2.1.0`)
+2) If equal, stable (no label) > any prerelease
+3) If both prerelease, label rank `alpha < beta < pre < preview < rc` (unknown lexical), then numeric suffix (`beta.1 < beta.2 < rc.1`)
+4) Malformed → TryParse false → shown last, never auto `latest`
+
+Examples: `v2.0.0 < v2.1.0 < v2.1.1 < v2.2.0 < v3.0.0`; `v2.2.0-rc.1 < v2.2.0-beta.1 < v2.2.0` within prerelease; `installed==available → UpToDate`.
+
+---
+
+## 10. Update Discovery
+
+**Invariant:** *HelloFix startup never waits for GitHub. Camera path 2.8s; updater adds 0ms.*
+
+| Trigger | When | Behaviour |
+|---|---|---|
+| Startup check (deferred) | `main.cpp Task::Delay(5000)` after `Application::Run` pump + `RecoveryLoopFailsafe` Arm — never during `MyForm_Load` | Background only; skip if `isCommandWorker` |
+| Periodic | `Timer 6h` while `isMonitoring && isArmed` | Coalesced; skip if last successful <1h |
+| Manual refresh | Updater popup `⟳` / `Check now` | Always fires, debounced 30s |
+| Cooldown | `lastCheckTick + 30min` + ETag reuse | Mirrors watchdog 1500ms dedup |
+| Cache | `%APPDATA%\Windows Hello Fix\updater_cache.json` + `updater_etag.txt` | ETag/`Last-Modified` → `304` use cached; failure use stale <24h; success overwrite |
+| Network failure | `HttpRequestException` | `Offline` → cached visible + `offline` banner |
+| API 429 | `429` → `RateLimited` + `Retry-After`/`X-RateLimit-Reset` | Retry at `Reset+60s` jitter, max 1/h |
+| Malformed | parse `false` → skip entry | Log `Updater_MalformedRelease` but no crash |
+| Offline | No internet | No exception propagates to core; watchdogs untouched |
+
+No busy polling, no 1s timer.
+
+---
+
+## 11. Network Threading — Do Not Block
+
+```
+GUI (UI thread)
+  │  ↓ popup or startup delay
+  │  Task::Run(CheckAsync)   // ThreadPool
+  │         ↓ HttpClient.GetAsync → await
+  │  GitHub API (HTTPS)
+  │         ↓ JSON parse
+  │  UpdateState diff (version compare, channel filter)
+  │         ↓ Control::BeginInvoke(Action{ apply state → invalidate icon/popup })
+  └────────→ icon/popup renders
+```
+
+Zero `Wait()/Result` on UI — all async/await or ContinueWith(TaskScheduler::FromCurrentSynchronizationContext). HttpClient timeout 15s; CancellationTokenSource cancelled on FormClosing/Disarm. Download uses ResponseHeadersRead + Stream::CopyToAsync with IProgress<int> marshaled via BeginInvoke. No SetupDi/CM_* from network thread.
+
+---
+
+## 12. UI Concept (integration into 430×240)
+
+```
+┌─────────────────────────────────────────────┐  430×240 FixedDialog
+│ Windows Hello Fix v2.1                  X   │
+│ Select Target RGB Sensor                    │  lblTitle (20,25)
+│ [ComboBox: deviceDrop            ▼]        │  (25,75) 380×31
+│ [Start Monitoring Service               ]   │  btnToggle (25,130) 380×45
+│ Status: Service Running            [ ↓ • ] │  lblStatus (25,195) + icon (392,192) 22×22
+└─────────────────────────────────────────────┘
+  icon: PictureBox Panel owner-drawn, BackColor Transparent
+  glyph: ↓ Segoe MDL2 Assets E896 12pt #605E5C
+  dot: ● 6px #D13438 top-right overlay — visible only when UpdateAvailable
+  tooltip: "Updates — click to view releases" / "Checking..." / "Up to date" / "Download failed"
+```
+
+| State | Icon | Dot | Tooltip | Click |
+|---|---|---|---|---|
+| `Idle/UpToDate/Offline` | `↓` dim 60% | hidden | `Up to date` | opens explorer UpToDate variant |
+| `Checking` | `↓` pulsing 500ms | hidden | `Checking...` | disabled |
+| `UpdateAvailable` | `↓` full | **● red** | `Update available: v2.2.0` | highlights latest |
+| `Downloading n%` | `↓` + progress arc | hidden | `Downloading 42%…` | explorer with progress + Cancel |
+| `Installing` | `↓` spinner | hidden | `Installing…` | disabled |
+| `Error` | `↓` + `!` | hidden | `Update check failed — retry` | error banner |
+| `RestartRequired` | `↓•` yellow | yellow | `Restart to finish` | — |
+
+Why this placement: no resize, no large button, Segoe UI 9-10 consistent, single PictureBox (4 lines). Enlarging to 430×280 considered but rejected.
+
+---
+
+## 13. Updater Interaction Model — Recommended Option D Hybrid
+
+| Option | Fit |
+|---|---|
+| A Compact floating window | ok but feels like second app |
+| B Expanded section (enlarge to 380) | violates "do not redesign GUI" |
+| C Small popup/menu | cannot show notes/channel/assets |
+| **D Hybrid small updater popup + Browse Releases** | **recommended** |
+
+```
+             [ ↓ ● ] click
+                 │
+                 ▼
+      ┌─────────────────────────────────┐
+      │ Updates                     ✕   │
+      │ Windows Hello Fix v2.1 → v2.2.0│  Current → Available (green if newer)
+      │ Stable • Released 2026-06-08   │  Channel + date
+      │ ─────────────────────────────── │
+      │ Release notes excerpt (3 lines) │
+      │ [View on GitHub]  [Copy notes]  │
+      │ ─────────────────────────────── │
+      │ [ Update ]    [ Details ▸ ]     │  disabled if offline/no asset/latest
+      │ Channel: [Stable ▼]  ⟳ Check   │  Combo + manual refresh
+      │ Browse releases (3)  ▸           │  Expands inline list (§14)
+      └─────────────────────────────────┘
+```
+
+Variants: UpToDate → ✓ latest Stable (v2.1.0) + Browse; Offline/Error → banner + Retry; Downloading → Cancel (42%) + progress bar. Single popup instance coalesced.
+
+---
+
+## 14. Release Explorer Design
+
+```
+Compact popup
+   ↓ Browse releases
+Release list (scrollable virtual ListBox, 20 max per channel)
+   ↓ filter tabs [Stable] [Beta] [PreRelease]
+selected row → detail pane (bottom half, no new top-level)
+  notes (markdown plain+links), Assets (name+size), Version+Channel+Date
+  actions: [Update to this version] [Download Installer...] [Open on GitHub]
+```
+
+**Rows:**
+```
+Windows Hello Fix v2.2.0    Stable      2026-08-14   ● latest
+Windows Hello Fix v2.1.0    Stable      2026-07-01     installed ✓
+Windows Hello Fix v2.0.0    Stable      2026-06-08
+```
+
+Date from `published_at yyyy-MM-dd`; descending CompareTo within channel; installed pinned.
+
+**Fetching:**
+- Minimum API: **one call** `GET /releases?per_page=20&page=1` → all rows. No per-asset call (assets inline). Only Update uses browser_download_url already cached.
+- `View on GitHub` → `Process::Start(html_url)` (`UseShellExecute=true`, validate `Uri::IsWellFormedUriString` + `https://github.com/Shivu516/Windows-Hello-Fix/releases/tag/` prefix). No WebView2.
+
+---
+
+## 15. Update File Download Policy
+
+**Normal Update — never in Downloads:**
+```
+User → Update
+  ↓ Downloading
+  ↓ DownloadToTemp(browser_download_url, size, sha256, progress, cancel)
+  ↓ Staging: %TEMP%\WindowsHelloFix\Updates\{guid}\Windows_Hello_Fix_Setup.exe
+  ↓ Verify size+sha256 (if digest) → InstallStarted
+  ↓ Launch installer helper → main Exit → installer replaces → helper cleans → launches new exe
+  ↓ On success: cleanup TEMP\{guid}
+  ↓ On cancel/fail: immediate delete
+```
+
+- **Temp:** `GetTempPath() + "WindowsHelloFix\Updates\" + Guid.NewGuid("N") + "\" + "Windows_Hello_Fix_Setup.exe"`. Per-user isolation, avoids Program Files ACLs.
+- **Naming:** Fixed installer name, no user input, sanitize allow-list, ignore Content-Disposition.
+- **Cleanup:** Cancel(), DownloadFailed, InstallFailed, ApplicationExit, OS Disk Cleanup, plus start-up sweep deletes Updates\*\ older than 7 days.
+- **Interrupted:** token → delete .part → Idle with retry banner.
+- **Permission:** TEMP writable as standard user; installer elevation at launch (UAC), not download.
+- **AV lock:** Download to .part then File::Move atomically; retry move 3×500ms else Error_FileLocked.
+
+Explicit save: `Download Installer...` (SaveFileDialog exe, Downloads) → direct to chosen path, no TEMP, no post-cleanup, no auto-launch.
+
+---
+
+## 16. Running-Executable Update Problem — B hybrid recommended
+
+Investigation §§5,17: `Windows_Hello_Fix_v2_0.exe` memory-mapped — File::Replace fails ERROR_SHARING_VIOLATION; proven unlock is `taskkill /F /IM` + Sleep 1500 → then File.
+
+```
+HelloFix GUI (UpdateAvailable → Update)
+   │ staged Setup.exe to TEMP\{guid}\
+   ▼
+Updater helper (B: direct Setup.exe launch; A-light: tiny helper exe)
+   │ Process::Start(TempSetupPath, "/S") then Environment::Exit(0)
+   ▼
+HelloFix exits (mutex released)
+   ▼
+Setup.exe: taskkill (safety) → Unblock-File → File overwrite → task re-register → optional /restore-camera
+   ▼
+MUI_FINISHPAGE_RUN launches new exe
+   ▼
+helper deletes TEMP\{guid} + self-deletes (cmd /c ping+del) or startup sweep
+```
+
+| Sub-option | UX | Verdict |
+|---|---|---|
+| **B Direct Setup.exe launch** | NSIS itself is helper; first line taskkill kills caller if race; one less binary | **Primary** |
+| A-light tiny helper UpdaterHelper.exe (or one-shot .cmd) | Wait PID → launch Setup.exe → delete self; fixes wizard-behind-background focus | **Fallback if B wizard hidden** |
+
+Keeps install logic in one place. Task path stability passes through.
+
+---
+
+## 17. Installer vs Direct Exe Update — Installer authoritative
+
+| Candidate | Size v2.0.0 | What it does | Verdict |
+|---|---|---|---|
+| `Windows_Hello_Fix_Setup.exe` 681 KB NSIS | 681 KB | Overwrites exe+metagen+ico + unblock + config dir + tasks + registry + MUI_FINISHPAGE_RUN | **AUTHORITATIVE** |
+| `Windows_Hello_Fix_v2_0.exe` ~487 KB | ~487 KB | Bare image, no tasks/registry/unblock | REJECT |
+| `*.zip` v1 legacy | — | obsolete pnputil | reject |
+
+**Asset identification:**
+```
+assets → filter a where a.name=="Windows_Hello_Fix_Setup.exe" (OrdinalIgnoreCase)
+                       && a.content_type=="application/x-msdownload"
+                       && a.browser_download_url.StartsWith("https://github.com/Shivu516/Windows-Hello-Fix/releases/download/")
+If 1 → authoritative; If 0 → Update disabled + "No installer — View on GitHub"; If >1 → pick largest with sha256.
+Allow-list enforced — never execute arbitrary name.
+```
+
+Checksum via `assets[].digest "sha256:0443..."` → `SHA256.Create().ComputeHash(FileStream)` after download; on mismatch delete+retry once. Task/config preserved (installer overwrite keeps config.txt).
+
+---
+
+## 18. Downgrading
+
+User may select older row → `Update to this version` treated uniformly:
+```
+V_sel > V_cur → Upgrade
+V_sel == V_cur → Reinstall (confirm)
+V_sel < V_cur → Downgrade → confirm + warning if IsUpdaterSupported==false
+```
+
+**Downgrade dialog:**
+```
+┌──────────────────────────────────────────────┐
+│ Downgrade to v2.0.0?                         │
+│ You are on v2.1.0. Selected v2.0.0.          │
+│ ⚠ v2.0.0 does NOT include the in-app updater │
+│ After downgrading, download icon and         │
+│ Browse Releases will disappear. To return    │
+│ you will need to manually download from      │
+│ GitHub.                                      │
+│ [ Cancel ]    [ Downgrade anyway ]           │
+│ ☐ Don't warn again for this version          │
+└──────────────────────────────────────────────┘
+```
+
+Warning via single capability query `candidate.IsUpdaterSupported()==false` (today only v2.0.0/v1.0.0). No scattered if tag=="v2.0.0".
+
+---
+
+## 19. Future Updater Compatibility
+
+| Option | Mechanism | Cost |
+|---|---|---|
+| **A Version-capability rule** | `IsUpdaterSupported() => >=v2.1.0` | Zero, offline, no metadata |
+| B Explicit metadata `updaterSupported=true` in body | Requires release author memory | Over-engineered |
+
+Chosen: A. Future protocol bump can extend to check suffix `_updater2.exe` if needed — YAGNI for 2.1.
+
+---
+
+## 20. Security Model
+
+| Threat | Mitigation |
+|---|---|
+| MITM / HTTP downgrade | TLS 1.2+ only; allow-list `https://api.github.com` + `https://github.com`; reject `http://` from JSON |
+| Malformed JSON | Strict parse; validate `tag` regex `^v\d+\.\d+\.\d+(-[a-z0-9.]+)?$`, `assets[].browser_download_url` github prefix; ignore extra |
+| Malicious asset URL | Allow-list `Host=="github.com" && Path.StartsWith("/Shivu516/Windows-Hello-Fix/releases/download/") && name=="Windows_Hello_Fix_Setup.exe"` |
+| Corrupt/tampered | Size + sha256 verify; on mismatch delete+retry |
+| TOCTOU | Fetch→immediate download same URL; re-verify size+sha; on 404 → Error_AssetNotFound + re-check |
+| Privilege escalation | Staged Setup NOT executed as admin until user clicks Update; UAC requireAdministrator dialog. TEMP inherits user ACL. |
+| Temp permission/symlink | Per-user GetTempPath(), FileShare::None, no symlink follow |
+| Arbitrary execute | UpdateInstaller::Launch allow-list only; other URLs via UseShellExecute browser |
+| Rate-limit abuse | 60/h + cooldown + ETag prevents self-DoS |
+
+Full Authenticode + WinVerifyTrust recommended future phase (no cert today).
+
+---
+
+## 21. Network Failure Behaviour
+
+**Invariant: no updater failure affects core.**
+
+| Failure | Updater | Core + watchdogs |
+|---|---|---|
+| No internet/DNS | `Offline`, cached or banner, no MessageBox | WTS/Power/CameraFailsafe/RecoveryLoop unaffected |
+| GitHub 5xx/429 | `Error_RateLimited` with reset; use stale <24h | unchanged |
+| Malformed | Skip entry, log MalformedRelease | unchanged |
+| Missing asset | Row `No installer — View on GitHub`; Update disabled | unchanged |
+| Download 404 mid-flight | `DownloadFailed|AssetNotFound` + re-check | unchanged |
+| Timeout | `DownloadFailed|Timeout` → delete part | unchanged |
+| User dismiss | Banner ✕ → Idle until next periodic/manual | — |
+
+Logging Updater_NetworkError only on transition, not per-poll.
+
+---
+
+## 22. Camera Failsafe Isolation
+
+```
+src/core                  — camera hardware authority
+      ↑ observes via getters          ↓ calls Recover/Verify
+src/watchdog              — failsafe authority (CameraFailsafe 90s, RecoveryLoop 30s)
+                                      ↕ NO edge to updater
+src/updater               — update/release authority ONLY
+   Updater ──► GitHubReleaseClient
+           ──► UpdateVersion/Channel
+           ──► UpdateInstaller (TEMP, launch)
+           ──► UpdateState/cache
+           ──► UpdaterUI (icon/popup) → GUI events/BeginInvoke
+GUI (MyForm) ──► Updater public interface (main.cpp owned)
+```
+
+Updater never calls DisableTargetCameraHardware, EnableTargetCameraHardware, RecoverCameraHardware, SetCameraHardwareStateVerified, ScanSystemCameras, WTS*, RegisterPowerSettingNotification, CameraFailsafe::Arm, RecoveryLoopFailsafe::*. Never observes isMonitoring/isSystemEnding/cameraExpectedDisabled/isAlreadyDisabled/g_lastHardwareToggleTick. Enforced by no #include "../watchdog" and review gate.
+
+---
+
+## 23. GUI Integration Boundary — Minimum
+
+| File | Change | Size | Why not in src/updater |
+|---|---|---|---|
+| `main.cpp` | Own `Updater^` block after RecoveryLoopFailsafe: `if (!isCommandWorker){ updater=gcnew Updater(%form); form.Load+=Updater::OnOwnerLoad; form.FormClosing+=Updater::OnOwnerClosing; }` + SetVersionFromManifest() | ~15 lines | main.cpp outside src/core per AGENTS.md §1 — allowed, mirrors failsafe precedent |
+| `src/core/MyForm_Core.cpp` InitializeComponent | ZERO preferred — updater creates overlay at OnOwnerLoad via form->Controls->Add dynamic injection. Fallback 4-line PictureBox if Z-order fails. | 0 or 4 | Dynamic injection keeps core byte-identical |
+| `src/core/MyForm_Config.cpp` | NONE — updater uses own updater_cache.json via Environment::GetFolderPath | 0 | reuse directly |
+| `x64/Release/install_script.nsi` | NO CHANGE for v2.1 updater (future embeds new exe only) | 0 | — |
+
+Smallest seam is main.cpp creates updater and injects 22px icon at runtime; popup owned Form anchored to main.
+
+---
+
+## 24. CORE / WATCHDOG CHANGES
+
+```text
+src/core changed:    NO  (planning zero; implementation targets NO — dynamic injection path)
+src/watchdog changed: NO
+```
+
+**Exception table (if later deemed unavoidable — all STOP-and-ask):**
+
+| File | Hypothetical | Reason claimed | Why src/updater cannot solve | Smallest |
+|---|---|---|---|---|
+| `src/core/MyForm_Core.cpp:174` | `Text = "Windows Hello Fix v2.0"` → `v2.1` | Chrome title mismatch | Could be `form.Text = Updater::CurrentVersionDisplay()` in main.cpp so not unavoidable | one line |
+| `src/core/MyForm_Core.cpp:119` | Add `PictureBox updaterIcon` designer | Z-order fragile | Dynamic injection proven via failsafe → not unavoidable | four lines |
+| `src/watchdog/*` | Updater→watchdog call | — | Forbidden §22 → rejected | — |
+
+All require explicit approval per AGENTS.md §8.
+
+---
+
+## 25. Build System
+
+Current `Windows_Hello_Fix_v2_0.vcxproj:130-163` references `System`, `System.Data`, `System.Drawing`, `System.Windows.Forms`, `System.Xml`; `ClInclude src\core` + `src\watchdog`.
+
+**Minimum for v2.1:**
+1. Add `Reference Include="System.Net.Http"` (and `System.Web.Extensions` if needed).
+2. Keep `AdditionalDependencies setupapi.lib;user32.lib;wtsapi32.lib;advapi32.lib;` unchanged; no winhttp.lib.
+3. Add compile items for `src/updater/*` (8 pairs).
+4. No flag changes (`UseDebugLibraries`, `CLRSupport true`, etc.).
+5. `.vcxproj.filters` — add `Source Files\src\updater` + `Header Files\src\updater` groups.
+6. `app.manifest` already `2.1.0.0` — bump to `2.2.0.0` at next release only.
+7. No `.rc` icon change — dot is GDI-painted.
+
+No WebView2, libcurl, nlohmann/json, OpenSSL — rejected.
+
+---
+
+## 26. Threading / Lifetime (detailed)
+
+- Updater::CheckAsync() — Task::Run → FetchAsync(cancel) → await. Owned by main.cpp's MyForm scope; FormClosing → Disarm() → CancellationTokenSource::Cancel() → CancelPendingRequests() → State=Idle. Every BeginInvoke checks !form->IsDisposed && !Disposing.
+- UpdateInstaller::DownloadAsync(url,path,progress,cancel) — FileStream(.part,Create,Write,None) + GetStreamAsync → CopyToAsync with progress; on cancel → Delete(part); on complete → Move(part,final).
+- UpdateInstaller::ApplyUpdate(temp,currentPid) — Process::Start with Verb="runas" or let NSIS self-elevate (requireAdministrator). Helper waits WaitForSingleObject(pid,5000) then proceeds if timeout.
+- No callback after Application::Exit — helper external; updater GC'd with main.cpp.
+
+---
+
+## 27. Caching
+
+- Location `%APPDATA%\Windows Hello Fix\updater_cache.json` + `updater_etag.txt`.
+- Format `{lastCheckUtc, channel, etag, lastModified, releases:[{serialized GitHubRelease}]}` — stores only 9 fields, not raw.
+- Expiration: ETag primary; time fallback kCacheMaxAge=6h, kMinCheckInterval=30m. Stale <24h reused on Offline/RateLimited; >7d discarded.
+- ETag: send If-None-Match on periodic; on 304 update lastCheckUtc only; on 200 parse ETag, overwrite atomically (WriteAllText(temp)+Move).
+- Force: RefreshAsync(true) omits If-None-Match (full 200).
+
+---
+
+## 28. Logging (reusing diagnostic.log)
+
+Reuse MyForm::LogFailsafe via owner handle (Monitor::Enter(diagnosticLogSync)).
+
+**Events (non-spam, transitions only):**
+```
+Updater_CheckStarted          | Channel=Stable Force=0
+Updater_CheckCompleted        | Releases=2 Latest=v2.0.0 DurationMs=340
+Updater_UpdateAvailable       | Available=v2.2.0 > Installed=v2.1.0
+Updater_NoUpdate              | Installed=v2.1.0 Latest=v2.1.0
+Updater_ChannelChanged        | From=Stable To=Beta
+Updater_ReleaseSelected       | Tag=v2.0.0 Channel=Stable
+Updater_DownloadStarted       | Asset=Windows_Hello_Fix_Setup.exe Size=681623
+Updater_DownloadProgress      | Percent=42 (throttled 0/50/100)
+Updater_DownloadCompleted     | Path=%TEMP% Verified=Sha256
+Updater_DownloadFailed        | Reason=Checksum|Timeout|Canceled|AssetNotFound
+Updater_InstallStarted        | Path=... Silent=1
+Updater_InstallFailed         | ExitCode
+Updater_DowngradeWarning      | Current=v2.1.0 Target=v2.0.0 HasUpdater=0
+Updater_BrowserOpened         | Url=https://...
+Updater_NetworkError          | Code
+Updater_RateLimited           | Remaining=0 Reset
+Updater_CacheUsed             | Reason=304NotModified|Offline AgeHours=2
+```
+
+Idle polling not logged; CheckStarted ≤1/30min.
+
+---
+
+## 29. UI States
+
+| State | Icon | Dot | Tooltip | Popup banner | Next |
+|---|---|---|---|---|---|
+| Idle | `↓` 60% | — | `Checking…` | — | Checking |
+| Checking | `↓` pulsing | — | `Checking…` | spinner | UpToDate/UpdateAvailable/Error |
+| UpToDate | `↓` 60% | — | `Up to date v2.1.0` | `✓ latest Stable` | Checking on timer/manual |
+| UpdateAvailable | `↓` 100% | ● red | `Update available v2.2.0` | highlight + Update enabled | Downloading/dismissed |
+| Downloading | `↓` ring | — | `Downloading 42%` | progress+Cancel | Installing/Error/Idle |
+| Installing | `↓` spinner | — | `Installing…` | Installing disabled | exit |
+| Error | `↓` + `!` | — | `Update check failed — retry` | `unavailable` banner | manual retry |
+| Offline | `↓` dim | — | `Offline — using cached` | `Offline — cached 2h ago` | retry |
+| RateLimited | `↓` dim | — | `Rate limited — retry 13:00` | reset time | auto at reset |
+
+Only UpdateAvailable shows red dot.
+
+---
+
+## 30. Release Explorer Performance
+
+- Do not download assets to show list — GET /releases?per_page=20 returns assets[] inline, no per-release call. Render 20 rows from 5-20KB JSON <10ms.
+- Paginate only if Link: rel="next" present — Load more button.
+- Lazy detail: notes body already in list response; only Update fetches browser_download_url binary — never pre-downloaded.
+- Notes markdown as plain excerpt (200 chars) in list; full in detail pane with links; no image fetch.
+
+---
+
+## 31. GitHub Rate Limiting
+
+Unauth GET /releases 60/h/IP (X-RateLimit-Limit:60). Design for <10/h worst: startup 1 + periodic 4 + manual 2 = 7. ETag→304 counts but cheaper. Never loop-retries.
+
+On limit hit: parse Retry-After or X-RateLimit-Reset → Task::Delay(reset-Now+60s) → RateLimited banner; show cached <24h. No OAuth/PAT for v2.1; optional PAT via updater.json patEncrypted is incremental extension later.
+
+---
+
+## 32. Error / Edge-Case Matrix (25 cases)
+
+| # | Edge case | Updater | Core isolation |
+|---|---|---|---|
+| 1 | No internet | Offline, cached or banner, no MessageBox | core running |
+| 2 | GitHub 5xx/timeout | Error, retry after cooldown; stale <24h | core running |
+| 3 | API 429 Rate limit | RateLimited with reset; retry at reset | — |
+| 4 | Malformed release (bad tag) | Skip entry, show others | — |
+| 5 | Missing installer asset | Row `No installer — View on GitHub`; Update disabled | — |
+| 6 | Multiple installer assets | Pick allow-list; log MultipleInstallerAssets | — |
+| 7 | Same version available | UpToDate, no dot; Update→Reinstall confirm | — |
+| 8 | Newer version available | UpdateAvailable, dot, highlight | — |
+| 9 | Older version selected | Downgrade → §18 warning | — |
+|10| v2.0 selected (no updater) | Warning updater will disappear | — |
+|11| Beta selected | Channel Beta filter + CompareTo order | — |
+|12| Pre-release/RC selected | Under PreRelease only | — |
+|13| Interrupted download 40% | DownloadFailed|Interrupted, delete .part, Retry | — |
+|14| Corrupt download | Delete, DownloadFailed|Checksum, auto-retry once | — |
+|15| Installer fails exit non-zero | InstallFailed|ExitCode, keep staging for retry | core 5-15s |
+|16| User cancels | CancelRequested → delete .part → Idle | — |
+|17| App closes during download | Disarm cancels → abort → delete part → sweep | — |
+|18| Insufficient permissions (TEMP) | Error_TempUnavailable → try LOCALAPPDATA\Temp fallback | — |
+|19| Antivirus locks installer | Retry move 3×500ms; if locked Error_FileLocked | — |
+|20| TEMP unavailable (disk full/GPO) | Error_TempUnavailable + Open TEMP link | — |
+|21| Release deleted after metadata | Download 404 → DownloadFailed|AssetNotFound → banner + auto Check | — |
+|22| Asset URL invalid/redirect | 404/allow-list reject | — |
+|23| Installed newer than channel latest | NoDowngradeNeeded — explorer shows installed > latest, dot hidden | — |
+|24| Network disappears mid-download | Same as 13 — timeout 60s then DownloadFailed | — |
+|25| Repeated clicks icon | Debounced 500ms + state==Checking/Downloading early-return; never parallel | — |
+
+All updater catch (...) top-level in façade — no exception propagates to MyForm_Load/watchdogs.
+
+---
+
+## 33. User Experience Goal
+
+```
+Normal (UpToDate):   [ ↓ ] dim  → click → popup "✓ You are on latest v2.1.0" + Browse
+Update available:    [ ↓ ● ] red → click
+                     ┌──────────────────────────────────┐
+                     │ Updates                      ✕   │
+                     │ Windows Hello Fix v2.1 → v2.2.0  │
+                     │ Stable • 2026-08-14              │
+                     │ ─────────────────────────────── │
+                     │ • Native C++ speeds…             │
+                     │ [View on GitHub] [Copy notes]    │
+                     │ [ Update ]       [ Details ▸ ]   │
+                     │ Channel [Stable ▼]  ⟳            │
+                     │ Browse releases (3)  ▸            │
+                     └──────────────────────────────────┘
+Click Browse → scroll list → row detail → [Update to v2.0.0] → if v2.0.0 → downgrade warning (§18)
+Downloading:         [ ↓ ◐ ] 42% → click → popup [Cancel (42%)] + progress bar
+Installing:          [ ↓ ◑ ] spinner → app exits → NSIS wizard → new app → TEMP cleaned
+Error/Offline:       [ ↓ !] dim → click → banner "unavailable — View on GitHub / Retry"
+```
+
+Spec constraints met: minimal UI, no permanent Check for Updates button, icon bottom-right aligned to lblStatus, red dot, browsing+channels+browser, TEMP staging+cleanup.
+
+---
+
+## 34. Documentation
+
+- This file preserves prior failsafe plan as Appendix A. No AGENTS.md/ARCHITECTURE.md edits in planning session; future docs PR adds docs/files/Updater.md + docs/UPDATER_DESIGN.md.
+- Structure when preserved: `# Windows Hello Fix v2.1 — Update System Plan (DRAFT 2026-09-01)` + `## 1-40 (above)` + `## Appendix A — RecoveryLoopFailsafe (copy of current Plan.md before overwrite)`.
+
+---
+
+## 35. Files Planned for Future Implementation — Exact
+
+**New (`src/updater/`):**
+```
+src/updater/UpdateVersion.h / .cpp
+src/updater/UpdateChannel.h / .cpp
+src/updater/UpdateModels.h / .cpp
+src/updater/GitHubReleaseClient.h/.cpp
+src/updater/UpdateState.h/.cpp
+src/updater/UpdateInstaller.h/.cpp
+src/updater/Updater.h/.cpp
+src/updater/UpdaterUI.h/.cpp
+```
+
+**Modified (outside protected):**
+```
+main.cpp
+Windows_Hello_Fix_v2_0.vcxproj
+Windows_Hello_Fix_v2_0.vcxproj.filters
+docs/Plan.md (this file)
+docs/files/Updater.md (future docs PR)
+```
+
+**Optionally/alternatively touched only if dynamic injection fails:**
+```
+src/core/MyForm_Core.cpp (4-line PictureBox fallback — NOT in preferred plan)
+```
+
+**Explicitly NOT modified:**
+```
+src/core/MyForm.h, MyForm_Camera.cpp, MyForm_Config.cpp, MyForm_Events.cpp, MyForm_System.cpp, MyForm_UI.cpp → NO
+src/watchdog/CameraFailsafe.h/.cpp, RecoveryLoopFailsafe.h/.cpp → NO
+x64/Release/install_script.nsi (for v2.1) → NO
+app.manifest / ProductionUtilities.h → NO
+```
+
+---
+
+## 36. Build System — Exact Changes
+
+*(see §5/§25 detail)* Add System.Net.Http, 8 ClInclude + 8 ClCompile; .filters add src\updater groups; manifest stays 2.1.0.0 until next release; no winhttp.lib.
+
+---
+
+## 37. Security Model & Integrity Verification (summary of §20)
+
+- Transport HTTPS only, TLS 1.2+; validate tag regex, host allow-list, size range, draft filter.
+- Asset integrity via sha256 digest from API (assets[].digest) — SHA256.Create().ComputeHash(FileStream) after download; corrupted download also caught. No cert today; WinVerifyTrust recommended future.
+
+---
+
+## 38. Test Matrix
+
+| # | Scenario | Steps | Expect |
+|---|---|---|---|
+| 1 | Normal startup no network | Disconnect → sign in → daemon --background + icon dim, banner offline | core Restore+watchdogs run |
+| 2 | Startup with update available | Connectivity on, channel Stable, 5s deferred check | CheckCompleted Latest v2.2.0 → dot red → popup v2.1→v2.2.0 |
+| 3 | Check now manual | Click ⟳ | CheckStarted → 304/200 within 15s, debounced 30s |
+| 4 | Channel switch Beta | Stable→Beta when no beta | ChannelChanged → still Stable latest, Beta empty |
+| 5 | Browse releases | Browse → list 2 rows sorted | No asset download; row click shows notes + View on GitHub |
+| 6 | Update upgrade | v2.2.0 → Update → staged TEMP → installer → new exe → TEMP cleaned | config preserved, tasks re-registered |
+| 7 | Download interrupted | Limit BW → Update → airplane 40% | DownloadFailed|Interrupted, .part deleted, Retry |
+| 8 | Corrupt download | Tamper staged 1 byte | DownloadFailed|Checksum, deleted |
+| 9 | Downgrade to v2.0 warning | Select v2.0.0 → Update to this version | Warning dialog (§18) |
+|10| Reinstall same | v2.1 → v2.1 row → Reinstall | Confirm Reinstall |
+|11| Rate limit | Rapid Check or mock Remaining:0 | RateLimited banner with reset, cached shown |
+|12| Antivirus lock | AV quarantines .part | Error_FileLocked + Open TEMP link |
+|13| TEMP unavailable | Fill TEMP/GPO | Error_TempUnavailable, fallback then banner |
+|14| Lock/unlock while downloading | Win+L during 60% | Download continues, camera untouched |
+|15| Shutdown during download | shutdown /r | Disarm cancels, deletes part, no orphan |
+
+Manual GUI/startup/camera/installer matrix per AGENTS.md §13 plus above.
+
+---
+
+## 39. Rollback Strategy
+
+- Icon regresses: revert main.cpp Updater block (delete ~15 lines) and rebuild — src/core untouched.
+- Download misbehaves: delete %APPDATA%\Windows Hello Fix\updater_cache.json → Idle; schtasks unchanged.
+- API shape changes: ParseJson try/catch → empty Malformed → banner, no crash.
+- System.Net.Http breaks Release|x64: remove Reference + src/updater/* from .vcxproj, rebuild — prior failsafe still builds.
+- Uninstall safety: Section Uninstall unchanged (future add Delete "$APPDATA\...\updater_cache.json").
+
+---
+
+## 40. Future Extensibility
+
+- Beta/PreRelease published as prerelease=true v2.2.0-beta.1 appears under Beta/PreRelease tabs — no rewrite.
+- Authenticode: insert WinVerifyTrust(path) after sha256.
+- Delta: assets[] can carry Patch_v2.1_to_v2.2.exe; UpdateModels picks smaller if exists.
+- Headless auto-update: CheckAsync + ShouldAutoDownload without UI.
+- docs/Plan.md updated YES — implementation readiness YES, pending one clarifying decision (NSIS /S silent vs interactive).
+
+---
+
+## Architecture Recommendation (summary)
+
+**`HelloFix GUI → src/updater/* → GitHub Releases API → TEMP staging → NSIS Setup.exe → Restart`**
+
+8-file subsystem: UpdateVersion/Channel/Models, GitHubReleaseClient (HttpClient, ETag, rate-limit), UpdateState (cache+channel latest), UpdateInstaller (TEMP staging, sha256), Updater (façade, 6h timer, 30m cooldown, 5s deferred startup), UpdaterUI (22px icon bottom-right 430×240, red dot for UpdateAvailable, hybrid popup + release explorer, progress/cancel). Install logic stays in one place (NSIS). GUI via dynamic icon injection from main.cpp — zero src/core lines in ideal path. Version single UpdateVersion authority + channel derived from prerelease/tag; downgrade warning via IsUpdaterSupported().
+
+---
+
+## GitHub Release Strategy
+
+Tag v2.0.0 → POST /repos/.../releases with tag_name=vX.Y.Z, name=Windows Hello Fix vX.Y, prerelease=false, asset Windows_Hello_Fix_Setup.exe (681KB, sha256:0443…). Future stable repeats; betas set prerelease=true v2.2.0-beta.1/v2.2.0-rc.1. Server has no channel — updater maps client-side. Discovery GET /releases?per_page=20 (ETag+If-None-Match) for list, GET /releases/latest for Stable. Unauthenticated 60/h with cache+cooldown+304. Version CompareTo SemVer numeric+prerelease rank; channel filters before ordering.
+
+---
+
+## Update Installation Strategy
+
+**Authoritative asset:** `Windows_Hello_Fix_Setup.exe` (NSIS). Never raw exe.
+
+```
+Popup [Update] → metadata cached → DownloadAsync
+  → %TEMP%\WindowsHelloFix\Updates\{guid}\Windows_Hello_Fix_Setup.exe (+.part→move)
+  → Verify size+sha256 (assets[].digest)
+  → Process::Start(TempSetupPath, "/S" or "") + Environment::Exit(0)
+  → NSIS: taskkill → Unblock → File → RegisterWindowsHelloFixTasks.ps1 (Force) → registry → MUI_FINISHPAGE_RUN
+  → sweep deletes TEMP\{guid}
+  → NOT left in Downloads unless "Download Installer..." (SaveFileDialog, no cleanup)
+```
+
+TEMP\{guid} per-user ACL; interrupted/failed cleans .part; atomic MoveFileEx.
+
+---
+
+## UI Recommendation
+
+**Small native icon + notification dot bottom empty space, hybrid owned popup, hybrid release explorer (metadata local, browser for full page).**
+
+Icon 22×22 PictureBox at (392,192) right of lblStatus (25,195) — ↓ Segoe MDL2 Assets E896 60% dim when UpToDate, 100%+6px red dot ● #D13438 when UpdateAvailable, pulse-when-Checking, progress-ring-when-Downloading, no permanent Check for Updates text. Click → owned UpdaterPopup FixedDialog 340×380 anchored bottom-right: Current→Available|Channel|Date|notes excerpt|[Update][Details]|Channel combo+⟳|Browse releases. No redesign; 430×240 untouched; dynamic Controls->Add from main.cpp.
+
+---
+
+## Core / Watchdog Protection
+
+```text
+src/core changed:    NO  (planning zero; implementation targets NO)
+src/watchdog changed: NO
+```
+
+Updater never disables/enables camera, never touches isAlreadyDisabled/g_lastHardwareToggleTick, never interferes with watchdogs/WndProc, never second mutex/event. See §§22-24.
+
+---
+
+## Files Planned for Future Implementation — Recap
+
+**New `src/updater/`:** UpdateVersion.h/.cpp, UpdateChannel.h/.cpp, UpdateModels.h/.cpp, GitHubReleaseClient.h/.cpp, UpdateState.h/.cpp, UpdateInstaller.h/.cpp, Updater.h/.cpp, UpdaterUI.h/.cpp (8 pairs)
+
+**Modified (outside protected):** main.cpp (~15 lines), Windows_Hello_Fix_v2_0.vcxproj/.vcxproj.filters (refs + compiles), docs/Plan.md (this file)
+
+**Fallback-only:** src/core/MyForm_Core.cpp 4-line PictureBox if dynamic injection fragile — NOT in preferred plan
+
+**Not modified:** src/core/* other 5, src/watchdog/*, install_script.nsi (v2.1), app.manifest, ProductionUtilities.h
+
+---
+
+## Plan.md
+
+```text
+docs/Plan.md updated: YES — this file (DRAFT 2026-09-01 preserved with Appendix A)
+```
+
+---
+
+## Implementation Readiness
+
+**Ready: YES — subject to one pre-implementation product decision and one verification.**
+
+Do NOT implement before review. Next session consumes this plan directly.
+
+---
+
+## Appendix A — RecoveryLoopFailsafe Plan (IMPLEMENTED 2026-08-31 — preserved verbatim)
+
+> Historical note: This appendix is the previous `docs/Plan.md` content before the updater plan was prepended. Preserved byte-for-byte to keep useful history per instructions §32.
+
+
+---
+
 # Windows Hello Fix v2.1 — Plan: Enable-Only Startup / Runtime Recovery Failsafe (RecoveryLoopFailsafe)
 
 > **Status: IMPLEMENTED — Build Verified Release|x64 (2026-08-31) — Awaiting Reboot/Runtime Matrix**

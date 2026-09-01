@@ -9,6 +9,8 @@ Assembly System, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e0
 	hash=None, flags=None
 Assembly System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a: 
 	hash=None, flags=None
+Assembly System.Net.Http, Version=4.2.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a: 
+	hash=None, flags=None
 Assembly System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089: 
 	hash=None, flags=None
 Assembly System.Xml, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089: 
@@ -33,8 +35,320 @@ Class Windows_Hello_Fix_v2_0.RecoveryLoopFailsafe: AutoLayout, AnsiClass, Class,
     OnOwnerLoad(Object, EventArgs): PrivateScope, Public, HideBySig
     OnOwnerClosing(Object, FormClosingEventArgs): PrivateScope, Public, HideBySig
     Dispose(): PrivateScope, Public, Final, Virtual, HideBySig
+Class Windows_Hello_Fix_v2_0.Updater.UpdateVersion: AutoLayout, AnsiClass, Class, Public, Sealed, BeforeFieldInit
+    Void .ctor(Int32, Int32, Int32, System.String, Int32, System.String, Boolean): PrivateScope, Public, HideBySig, SpecialName, RTSpecialName
+  Interfaces:
+    System.IComparable`1[Windows_Hello_Fix_v2_0.Updater.UpdateVersion]
+  Properties:
+    Windows_Hello_Fix_v2_0.Updater.UpdateVersion Current 'get ' : 
+    Boolean IsPrerelease 'get ' : 
+    Boolean IsStable 'get ' : 
+    Boolean IsValid 'get ' : 
+    System.String RawTag 'get ' : 
+    System.String PrereleaseLabel 'get ' : 
+    Int32 Patch 'get ' : 
+    Int32 Minor 'get ' : 
+    Int32 Major 'get ' : 
+  Methods:
+    get_Major(): PrivateScope, Public, HideBySig, SpecialName
+    get_Minor(): PrivateScope, Public, HideBySig, SpecialName
+    get_Patch(): PrivateScope, Public, HideBySig, SpecialName
+    get_PrereleaseLabel(): PrivateScope, Public, HideBySig, SpecialName
+    get_RawTag(): PrivateScope, Public, HideBySig, SpecialName
+    get_IsValid(): PrivateScope, Public, HideBySig, SpecialName
+    get_IsStable(): PrivateScope, Public, HideBySig, SpecialName
+    get_IsPrerelease(): PrivateScope, Public, HideBySig, SpecialName
+    IsUpdaterSupported(): PrivateScope, Public, HideBySig
+    ToDisplayString(): PrivateScope, Public, HideBySig
+    ToString(): PrivateScope, Public, Final, Virtual, HideBySig
+    CompareTo(UpdateVersion): PrivateScope, Public, Final, Virtual, HideBySig, VtableLayoutMask
+    Parse(String): PrivateScope, Public, Static, HideBySig
+    TryParse(String, UpdateVersion&): PrivateScope, Public, Static, HideBySig
+    GetCurrentVersion(): PrivateScope, Public, Static, HideBySig
+    get_Current(): PrivateScope, Public, Static, HideBySig, SpecialName
+    CurrentDisplayString(): PrivateScope, Public, Static, HideBySig
+Class Windows_Hello_Fix_v2_0.Updater.ChannelHelper: AutoLayout, AnsiClass, Class, Public, Sealed, BeforeFieldInit
+    Void .ctor(): PrivateScope, Public, HideBySig, SpecialName, RTSpecialName
+  Methods:
+    FromRelease(Boolean(HasFieldMarshal), String, String): PrivateScope, Public, Static, HideBySig
+    ToDisplayString(UpdateChannel): PrivateScope, Public, Static, HideBySig
+    ToPersistedString(UpdateChannel): PrivateScope, Public, Static, HideBySig
+    TryParsePersisted(String, UpdateChannel&): PrivateScope, Public, Static, HideBySig
+    IsIncludedBySelection(UpdateChannel, UpdateChannel): PrivateScope, Public, Static, HideBySig
+    AllChannels(): PrivateScope, Public, Static, HideBySig
+Class Windows_Hello_Fix_v2_0.Updater.ReleaseAsset: AutoLayout, AnsiClass, Class, Public, Sealed, BeforeFieldInit
+    Void .ctor(): PrivateScope, Public, HideBySig, SpecialName, RTSpecialName
+  Properties:
+    Int32 DownloadCount 'get set' : 
+    System.String Sha256 'get set' : 
+    Int64 Size 'get set' : 
+    System.String ContentType 'get set' : 
+    System.String BrowserDownloadUrl 'get set' : 
+    System.String Name 'get set' : 
+  Methods:
+    get_Name(): PrivateScope, Public, HideBySig, SpecialName
+    set_Name(String): PrivateScope, Public, HideBySig, SpecialName
+    get_BrowserDownloadUrl(): PrivateScope, Public, HideBySig, SpecialName
+    set_BrowserDownloadUrl(String): PrivateScope, Public, HideBySig, SpecialName
+    get_ContentType(): PrivateScope, Public, HideBySig, SpecialName
+    set_ContentType(String): PrivateScope, Public, HideBySig, SpecialName
+    get_Size(): PrivateScope, Public, HideBySig, SpecialName
+    set_Size(Int64): PrivateScope, Public, HideBySig, SpecialName
+    get_Sha256(): PrivateScope, Public, HideBySig, SpecialName
+    set_Sha256(String): PrivateScope, Public, HideBySig, SpecialName
+    get_DownloadCount(): PrivateScope, Public, HideBySig, SpecialName
+    set_DownloadCount(Int32): PrivateScope, Public, HideBySig, SpecialName
+Class Windows_Hello_Fix_v2_0.Updater.GitHubRelease: AutoLayout, AnsiClass, Class, Public, Sealed, BeforeFieldInit
+    Void .ctor(): PrivateScope, Public, HideBySig, SpecialName, RTSpecialName
+  Properties:
+    Boolean HasUpdaterSupport 'get set' : 
+    System.Collections.Generic.List`1[Windows_Hello_Fix_v2_0.Updater.ReleaseAsset] Assets 'get set' : 
+    Windows_Hello_Fix_v2_0.Updater.UpdateChannel Channel 'get set' : 
+    Boolean IsDraft 'get set' : 
+    Boolean IsPrerelease 'get set' : 
+    System.DateTime PublishedAt 'get set' : 
+    System.String Body 'get set' : 
+    System.String HtmlUrl 'get set' : 
+    System.String Name 'get set' : 
+    Windows_Hello_Fix_v2_0.Updater.UpdateVersion Version 'get set' : 
+    System.String Tag 'get set' : 
+    Int64 Id   'get set' : 
+  Methods:
+    get_Id(): PrivateScope, Public, HideBySig, SpecialName
+    set_Id(Int64): PrivateScope, Public, HideBySig, SpecialName
+    get_Tag(): PrivateScope, Public, HideBySig, SpecialName
+    set_Tag(String): PrivateScope, Public, HideBySig, SpecialName
+    get_Version(): PrivateScope, Public, HideBySig, SpecialName
+    set_Version(UpdateVersion): PrivateScope, Public, HideBySig, SpecialName
+    get_Name(): PrivateScope, Public, HideBySig, SpecialName
+    set_Name(String): PrivateScope, Public, HideBySig, SpecialName
+    get_HtmlUrl(): PrivateScope, Public, HideBySig, SpecialName
+    set_HtmlUrl(String): PrivateScope, Public, HideBySig, SpecialName
+    get_Body(): PrivateScope, Public, HideBySig, SpecialName
+    set_Body(String): PrivateScope, Public, HideBySig, SpecialName
+    get_PublishedAt(): PrivateScope, Public, HideBySig, SpecialName
+    set_PublishedAt(DateTime): PrivateScope, Public, HideBySig, SpecialName
+    get_IsPrerelease(): PrivateScope, Public, HideBySig, SpecialName
+    set_IsPrerelease(Boolean(HasFieldMarshal)): PrivateScope, Public, HideBySig, SpecialName
+    get_IsDraft(): PrivateScope, Public, HideBySig, SpecialName
+    set_IsDraft(Boolean(HasFieldMarshal)): PrivateScope, Public, HideBySig, SpecialName
+    get_Channel(): PrivateScope, Public, HideBySig, SpecialName
+    set_Channel(UpdateChannel): PrivateScope, Public, HideBySig, SpecialName
+    get_Assets(): PrivateScope, Public, HideBySig, SpecialName
+    set_Assets(List`1): PrivateScope, Public, HideBySig, SpecialName
+    get_HasUpdaterSupport(): PrivateScope, Public, HideBySig, SpecialName
+    set_HasUpdaterSupport(Boolean(HasFieldMarshal)): PrivateScope, Public, HideBySig, SpecialName
+    GetAuthoritativeInstallerAsset(): PrivateScope, Public, HideBySig
+    HasInstallerAsset(): PrivateScope, Public, HideBySig
+Class Windows_Hello_Fix_v2_0.Updater.UpdateModels: AutoLayout, AnsiClass, Class, Public, Sealed, BeforeFieldInit
+    Void .ctor(): PrivateScope, Public, HideBySig, SpecialName, RTSpecialName
+  Methods:
+    ParseReleasesJson(String): PrivateScope, Public, Static, HideBySig
+    ParseSingleReleaseJson(String): PrivateScope, Public, Static, HideBySig
+    SerializeReleasesToCacheJson(List`1, String, String, DateTime, UpdateChannel): PrivateScope, Public, Static, HideBySig
+    TryDeserializeCacheJson(String, List`1&, String&, String&, DateTime&, UpdateChannel&): PrivateScope, Public, Static, HideBySig
+    IsValidTag(String): PrivateScope, Public, Static, HideBySig
+    ExtractTagFromJsonObject(String): PrivateScope, Public, Static, HideBySig
+Class Windows_Hello_Fix_v2_0.Updater.UpdateState: AutoLayout, AnsiClass, Class, Public, Sealed, BeforeFieldInit
+    Void .ctor(): PrivateScope, Public, HideBySig, SpecialName, RTSpecialName
+  Properties:
+    Windows_Hello_Fix_v2_0.Updater.GitHubRelease PendingDownloadRelease 'get set' : 
+    Windows_Hello_Fix_v2_0.Updater.GitHubRelease LatestForChannel 'get ' : 
+    Int32 DownloadProgress 'get set' : 
+    System.String StatusDetail 'get set' : 
+    Windows_Hello_Fix_v2_0.Updater.UpdaterStatus Status 'get set' : 
+    System.DateTime LastAttemptUtc 'get set' : 
+    System.DateTime LastCheckUtc 'get set' : 
+    System.String LastModified 'get set' : 
+    System.String ETag 'get set' : 
+    System.Collections.Generic.List`1[Windows_Hello_Fix_v2_0.Updater.GitHubRelease] CachedReleases 'get set' : 
+    Windows_Hello_Fix_v2_0.Updater.UpdateChannel SelectedChannel 'get set' : 
+    Windows_Hello_Fix_v2_0.Updater.UpdateVersion InstalledVersion 'get set' : 
+  Methods:
+    get_InstalledVersion(): PrivateScope, Public, HideBySig, SpecialName
+    set_InstalledVersion(UpdateVersion): PrivateScope, Public, HideBySig, SpecialName
+    get_SelectedChannel(): PrivateScope, Public, HideBySig, SpecialName
+    set_SelectedChannel(UpdateChannel): PrivateScope, Public, HideBySig, SpecialName
+    get_CachedReleases(): PrivateScope, Public, HideBySig, SpecialName
+    set_CachedReleases(List`1): PrivateScope, Public, HideBySig, SpecialName
+    get_ETag(): PrivateScope, Public, HideBySig, SpecialName
+    set_ETag(String): PrivateScope, Public, HideBySig, SpecialName
+    get_LastModified(): PrivateScope, Public, HideBySig, SpecialName
+    set_LastModified(String): PrivateScope, Public, HideBySig, SpecialName
+    get_LastCheckUtc(): PrivateScope, Public, HideBySig, SpecialName
+    set_LastCheckUtc(DateTime): PrivateScope, Public, HideBySig, SpecialName
+    get_LastAttemptUtc(): PrivateScope, Public, HideBySig, SpecialName
+    set_LastAttemptUtc(DateTime): PrivateScope, Public, HideBySig, SpecialName
+    get_Status(): PrivateScope, Public, HideBySig, SpecialName
+    set_Status(UpdaterStatus): PrivateScope, Public, HideBySig, SpecialName
+    get_StatusDetail(): PrivateScope, Public, HideBySig, SpecialName
+    set_StatusDetail(String): PrivateScope, Public, HideBySig, SpecialName
+    get_DownloadProgress(): PrivateScope, Public, HideBySig, SpecialName
+    set_DownloadProgress(Int32): PrivateScope, Public, HideBySig, SpecialName
+    get_LatestForChannel(): PrivateScope, Public, HideBySig, SpecialName
+    get_PendingDownloadRelease(): PrivateScope, Public, HideBySig, SpecialName
+    set_PendingDownloadRelease(GitHubRelease): PrivateScope, Public, HideBySig, SpecialName
+    IsUpdateAvailable(): PrivateScope, Public, HideBySig
+    IsInstalledNewerThanLatest(): PrivateScope, Public, HideBySig
+    GetReleasesForSelectedChannel(): PrivateScope, Public, HideBySig
+    GetReleasesForChannel(UpdateChannel): PrivateScope, Public, HideBySig
+    GetLatestForSelectedChannel(): PrivateScope, Public, HideBySig
+    FindReleaseByTag(String): PrivateScope, Public, HideBySig
+    GetCacheFilePath(): PrivateScope, Public, HideBySig
+    GetEtagFilePath(): PrivateScope, Public, HideBySig
+    LoadCacheFromDisk(): PrivateScope, Public, HideBySig
+    SaveCacheToDisk(): PrivateScope, Public, HideBySig
+    NeedsRefresh(TimeSpan): PrivateScope, Public, HideBySig
+    StatusToString(UpdaterStatus): PrivateScope, Public, Static, HideBySig
+Class Windows_Hello_Fix_v2_0.Updater.FetchResult: AutoLayout, AnsiClass, Class, Public, Sealed, BeforeFieldInit
+    Void .ctor(): PrivateScope, Public, HideBySig, SpecialName, RTSpecialName
+  Properties:
+    Int32 HttpStatusCode 'get set' : 
+    System.DateTime RateLimitReset 'get set' : 
+    Int32 RateLimitRemaining 'get set' : 
+    System.String ErrorDetail 'get set' : 
+    System.String LastModified 'get set' : 
+    System.String ETag 'get set' : 
+    System.Collections.Generic.List`1[Windows_Hello_Fix_v2_0.Updater.GitHubRelease] Releases 'get set' : 
+    Windows_Hello_Fix_v2_0.Updater.FetchStatus Status 'get set' : 
+  Methods:
+    get_Status(): PrivateScope, Public, HideBySig, SpecialName
+    set_Status(FetchStatus): PrivateScope, Public, HideBySig, SpecialName
+    get_Releases(): PrivateScope, Public, HideBySig, SpecialName
+    set_Releases(List`1): PrivateScope, Public, HideBySig, SpecialName
+    get_ETag(): PrivateScope, Public, HideBySig, SpecialName
+    set_ETag(String): PrivateScope, Public, HideBySig, SpecialName
+    get_LastModified(): PrivateScope, Public, HideBySig, SpecialName
+    set_LastModified(String): PrivateScope, Public, HideBySig, SpecialName
+    get_ErrorDetail(): PrivateScope, Public, HideBySig, SpecialName
+    set_ErrorDetail(String): PrivateScope, Public, HideBySig, SpecialName
+    get_RateLimitRemaining(): PrivateScope, Public, HideBySig, SpecialName
+    set_RateLimitRemaining(Int32): PrivateScope, Public, HideBySig, SpecialName
+    get_RateLimitReset(): PrivateScope, Public, HideBySig, SpecialName
+    set_RateLimitReset(DateTime): PrivateScope, Public, HideBySig, SpecialName
+    get_HttpStatusCode(): PrivateScope, Public, HideBySig, SpecialName
+    set_HttpStatusCode(Int32): PrivateScope, Public, HideBySig, SpecialName
+Class Windows_Hello_Fix_v2_0.Updater.GitHubReleaseClient: AutoLayout, AnsiClass, Class, Public, Sealed, BeforeFieldInit
+    Void .ctor(System.String, System.String): PrivateScope, Public, HideBySig, SpecialName, RTSpecialName
+    Void .ctor(): PrivateScope, Public, HideBySig, SpecialName, RTSpecialName
+  Methods:
+    FetchReleases(String, String, CancellationToken): PrivateScope, Public, HideBySig
+    FetchLatestRelease(String, CancellationToken): PrivateScope, Public, HideBySig
+Class Windows_Hello_Fix_v2_0.Updater.Updater: AutoLayout, AnsiClass, Class, Public, Sealed, BeforeFieldInit
+    Void .ctor(System.Windows.Forms.Form): PrivateScope, Public, HideBySig, SpecialName, RTSpecialName
+  Interfaces:
+    System.IDisposable
+  Properties:
+    Boolean IsArmed 'get ' : 
+    Windows_Hello_Fix_v2_0.Updater.UpdateState State 'get ' : 
+  Events:
+    System.EventHandler ReleasesUpdated: SpecialName
+    System.EventHandler StateChanged: SpecialName
+  Methods:
+    OnOwnerLoad(Object, EventArgs): PrivateScope, Public, HideBySig
+    OnOwnerClosing(Object, FormClosingEventArgs): PrivateScope, Public, HideBySig
+    Arm(): PrivateScope, Public, HideBySig
+    Disarm(): PrivateScope, Public, HideBySig
+    get_State(): PrivateScope, Public, HideBySig, SpecialName
+    get_IsArmed(): PrivateScope, Public, HideBySig, SpecialName
+    CheckAsync(): PrivateScope, Public, HideBySig
+    CheckAsync(Boolean(HasFieldMarshal)): PrivateScope, Public, HideBySig
+    CancelCheck(): PrivateScope, Public, HideBySig
+    CancelDownload(): PrivateScope, Public, HideBySig
+    DownloadReleaseAsync(GitHubRelease): PrivateScope, Public, HideBySig
+    DownloadToUserPathAsync(GitHubRelease, String): PrivateScope, Public, HideBySig
+    LaunchStagedInstaller(Boolean(HasFieldMarshal)): PrivateScope, Public, HideBySig
+    SetChannel(UpdateChannel): PrivateScope, Public, HideBySig
+    ShowPopup(): PrivateScope, Public, HideBySig
+    ShowPopupForRelease(GitHubRelease): PrivateScope, Public, HideBySig
+    IsPopupOpen(): PrivateScope, Public, HideBySig
+    GetCurrentVersionDisplay(): PrivateScope, Public, Static, HideBySig
+    RefreshCacheOnChannelChange(): PrivateScope, Public, HideBySig
+    ApplyTitleFix(): PrivateScope, Public, HideBySig
+    CleanupOldStaging(): PrivateScope, Public, Static, HideBySig
+    add_StateChanged(EventHandler): PrivateScope, Public, HideBySig, SpecialName
+    remove_StateChanged(EventHandler): PrivateScope, Public, HideBySig, SpecialName
+    add_ReleasesUpdated(EventHandler): PrivateScope, Public, HideBySig, SpecialName
+    remove_ReleasesUpdated(EventHandler): PrivateScope, Public, HideBySig, SpecialName
+    Dispose(): PrivateScope, Public, Final, Virtual, HideBySig
+Struct Windows_Hello_Fix_v2_0.Updater.UpdateChannel: AutoLayout, AnsiClass, Class, Public, Sealed, BeforeFieldInit
+  :System.Enum
+  Fields:
+    Int32 value__ : Public, SpecialName, RTSpecialName
+    Windows_Hello_Fix_v2_0.Updater.UpdateChannel Stable = 0 : Public, Static, Literal, HasDefault
+    Windows_Hello_Fix_v2_0.Updater.UpdateChannel Beta = 1 : Public, Static, Literal, HasDefault
+    Windows_Hello_Fix_v2_0.Updater.UpdateChannel PreRelease = 2 : Public, Static, Literal, HasDefault
+    Windows_Hello_Fix_v2_0.Updater.UpdateChannel Unknown = 99 : Public, Static, Literal, HasDefault
+Struct Windows_Hello_Fix_v2_0.Updater.UpdaterStatus: AutoLayout, AnsiClass, Class, Public, Sealed, BeforeFieldInit
+  :System.Enum
+  Fields:
+    Int32 value__ : Public, SpecialName, RTSpecialName
+    Windows_Hello_Fix_v2_0.Updater.UpdaterStatus Idle = 0 : Public, Static, Literal, HasDefault
+    Windows_Hello_Fix_v2_0.Updater.UpdaterStatus Checking = 1 : Public, Static, Literal, HasDefault
+    Windows_Hello_Fix_v2_0.Updater.UpdaterStatus UpToDate = 2 : Public, Static, Literal, HasDefault
+    Windows_Hello_Fix_v2_0.Updater.UpdaterStatus UpdateAvailable = 3 : Public, Static, Literal, HasDefault
+    Windows_Hello_Fix_v2_0.Updater.UpdaterStatus Downloading = 4 : Public, Static, Literal, HasDefault
+    Windows_Hello_Fix_v2_0.Updater.UpdaterStatus Installing = 5 : Public, Static, Literal, HasDefault
+    Windows_Hello_Fix_v2_0.Updater.UpdaterStatus Error = 6 : Public, Static, Literal, HasDefault
+    Windows_Hello_Fix_v2_0.Updater.UpdaterStatus Offline = 7 : Public, Static, Literal, HasDefault
+    Windows_Hello_Fix_v2_0.Updater.UpdaterStatus RateLimited = 8 : Public, Static, Literal, HasDefault
+Struct Windows_Hello_Fix_v2_0.Updater.FetchStatus: AutoLayout, AnsiClass, Class, Public, Sealed, BeforeFieldInit
+  :System.Enum
+  Fields:
+    Int32 value__ : Public, SpecialName, RTSpecialName
+    Windows_Hello_Fix_v2_0.Updater.FetchStatus Success = 0 : Public, Static, Literal, HasDefault
+    Windows_Hello_Fix_v2_0.Updater.FetchStatus NotModified = 1 : Public, Static, Literal, HasDefault
+    Windows_Hello_Fix_v2_0.Updater.FetchStatus NetworkError = 2 : Public, Static, Literal, HasDefault
+    Windows_Hello_Fix_v2_0.Updater.FetchStatus RateLimited = 3 : Public, Static, Literal, HasDefault
+    Windows_Hello_Fix_v2_0.Updater.FetchStatus ServerError = 4 : Public, Static, Literal, HasDefault
+    Windows_Hello_Fix_v2_0.Updater.FetchStatus Malformed = 5 : Public, Static, Literal, HasDefault
+    Windows_Hello_Fix_v2_0.Updater.FetchStatus Cancelled = 6 : Public, Static, Literal, HasDefault
 Class Windows_Hello_Fix_v2_0.CameraFailsafe: AutoLayout, AnsiClass, Class, Public, BeforeFieldInit
     Void .ctor(Windows_Hello_Fix_v2_0.MyForm): PrivateScope, Public, HideBySig, SpecialName, RTSpecialName
   Methods:
     Arm(): PrivateScope, Public, HideBySig
     Disarm(): PrivateScope, Public, HideBySig
+Class Windows_Hello_Fix_v2_0.Updater.DownloadProgress: AutoLayout, AnsiClass, Class, Public, Sealed, BeforeFieldInit
+    Void .ctor(): PrivateScope, Public, HideBySig, SpecialName, RTSpecialName
+  Properties:
+    Int64 TotalBytes 'get set' : 
+    Int64 BytesReceived 'get set' : 
+    Int32 Percent 'get set' : 
+  Methods:
+    get_Percent(): PrivateScope, Public, HideBySig, SpecialName
+    set_Percent(Int32): PrivateScope, Public, HideBySig, SpecialName
+    get_BytesReceived(): PrivateScope, Public, HideBySig, SpecialName
+    set_BytesReceived(Int64): PrivateScope, Public, HideBySig, SpecialName
+    get_TotalBytes(): PrivateScope, Public, HideBySig, SpecialName
+    set_TotalBytes(Int64): PrivateScope, Public, HideBySig, SpecialName
+Class Windows_Hello_Fix_v2_0.Updater.UpdateInstaller: AutoLayout, AnsiClass, Class, Public, Sealed, BeforeFieldInit
+    Void .ctor(): PrivateScope, Public, HideBySig, SpecialName, RTSpecialName
+  Methods:
+    DownloadToTemp(String, Int64, String, IProgress`1, CancellationToken, String&): PrivateScope, Public, Static, HideBySig
+    VerifyFile(String, Int64, String, String&): PrivateScope, Public, Static, HideBySig
+    ComputeSha256Hex(String): PrivateScope, Public, Static, HideBySig
+    CreateStagingPath(): PrivateScope, Public, Static, HideBySig
+    GetStagingRoot(): PrivateScope, Public, Static, HideBySig
+    CleanupStagingPath(String): PrivateScope, Public, Static, HideBySig
+    CleanupOldStagingFolders(Int32): PrivateScope, Public, Static, HideBySig
+    LaunchInstaller(String, Boolean(HasFieldMarshal), String&): PrivateScope, Public, Static, HideBySig
+    DownloadToUserPath(String, String, Int64, String, IProgress`1, CancellationToken, String&): PrivateScope, Public, Static, HideBySig
+    IsValidGithubAssetUrl(String): PrivateScope, Public, Static, HideBySig
+Class Windows_Hello_Fix_v2_0.Updater.UpdaterUI: AutoLayout, AnsiClass, Class, Public, Sealed, BeforeFieldInit
+    Void .ctor(System.Windows.Forms.Form, Windows_Hello_Fix_v2_0.Updater.Updater): PrivateScope, Public, HideBySig, SpecialName, RTSpecialName
+  Interfaces:
+    System.IDisposable
+  Methods:
+    InstallIcon(): PrivateScope, Public, HideBySig
+    RemoveIcon(): PrivateScope, Public, HideBySig
+    RefreshIcon(): PrivateScope, Public, HideBySig
+    ShowPopup(): PrivateScope, Public, HideBySig
+    ShowPopupForRelease(GitHubRelease): PrivateScope, Public, HideBySig
+    IsPopupOpen(): PrivateScope, Public, HideBySig
+    Dispose(): PrivateScope, Public, Final, Virtual, HideBySig
+Class Windows_Hello_Fix_v2_0.Updater.UpdaterPopup: AutoLayout, AnsiClass, Class, Public, BeforeFieldInit
+  :System.Windows.Forms.Form
+    Void .ctor(System.Windows.Forms.Form, Windows_Hello_Fix_v2_0.Updater.Updater): PrivateScope, Public, HideBySig, SpecialName, RTSpecialName
+  Methods:
+    RefreshForExternalChange(): PrivateScope, Public, HideBySig
+    SelectRelease(GitHubRelease): PrivateScope, Public, HideBySig

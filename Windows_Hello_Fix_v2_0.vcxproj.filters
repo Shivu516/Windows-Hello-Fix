@@ -27,6 +27,30 @@
     <ClInclude Include="src\watchdog\RecoveryLoopFailsafe.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="src\updater\UpdateVersion.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="src\updater\UpdateChannel.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="src\updater\UpdateModels.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="src\updater\UpdateState.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="src\updater\GitHubReleaseClient.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="src\updater\UpdateInstaller.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="src\updater\Updater.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="src\updater\UpdaterUI.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="resource.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -46,6 +70,9 @@
     </Filter>
     <Filter Include="Source Files\src\watchdog">
       <UniqueIdentifier>{C3D4E5F6-A7B8-9012-CDEF-123456789012}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\src\updater">
+      <UniqueIdentifier>{D4E5F6A7-B8C9-0123-DEFA-123456789013}</UniqueIdentifier>
     </Filter>
   </ItemGroup>
   <ItemGroup>
@@ -85,6 +112,30 @@
     </ClCompile>
     <ClCompile Include="src\watchdog\RecoveryLoopFailsafe.cpp">
       <Filter>Source Files\src\watchdog</Filter>
+    </ClCompile>
+    <ClCompile Include="src\updater\UpdateVersion.cpp">
+      <Filter>Source Files\src\updater</Filter>
+    </ClCompile>
+    <ClCompile Include="src\updater\UpdateChannel.cpp">
+      <Filter>Source Files\src\updater</Filter>
+    </ClCompile>
+    <ClCompile Include="src\updater\UpdateModels.cpp">
+      <Filter>Source Files\src\updater</Filter>
+    </ClCompile>
+    <ClCompile Include="src\updater\UpdateState.cpp">
+      <Filter>Source Files\src\updater</Filter>
+    </ClCompile>
+    <ClCompile Include="src\updater\GitHubReleaseClient.cpp">
+      <Filter>Source Files\src\updater</Filter>
+    </ClCompile>
+    <ClCompile Include="src\updater\UpdateInstaller.cpp">
+      <Filter>Source Files\src\updater</Filter>
+    </ClCompile>
+    <ClCompile Include="src\updater\Updater.cpp">
+      <Filter>Source Files\src\updater</Filter>
+    </ClCompile>
+    <ClCompile Include="src\updater\UpdaterUI.cpp">
+      <Filter>Source Files\src\updater</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>

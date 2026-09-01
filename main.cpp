@@ -1,5 +1,6 @@
 #include "MyForm.h"
 #include "src/watchdog/RecoveryLoopFailsafe.h"
+#include "src/updater/Updater.h"
 
 using namespace System;
 using namespace System::Windows::Forms;
@@ -58,10 +59,24 @@ int main(array<String^>^ args)
         }
     }
 
+    // Updater: owned outside src/core & src/watchdog — lightweight, non-invasive.
+    // Only for long-lived daemon — never for short-lived command workers.
+    Windows_Hello_Fix_v2_0::Updater::Updater^ updater = nullptr;
+    if (!isCommandWorker) {
+        try {
+            updater = gcnew Windows_Hello_Fix_v2_0::Updater::Updater(%form);
+            form.Load += gcnew EventHandler(updater, &Windows_Hello_Fix_v2_0::Updater::Updater::OnOwnerLoad);
+            form.FormClosing += gcnew FormClosingEventHandler(updater, &Windows_Hello_Fix_v2_0::Updater::Updater::OnOwnerClosing);
+        } catch (...) {
+            updater = nullptr;
+        }
+    }
+
     Application::Run(%form);
 
-    // Ensure Disarm on exit if loop was armed (also handled by FormClosing).
+    // Ensure Disarm on exit if loops were armed (also handled by FormClosing).
     try { if (recoveryLoop != nullptr) recoveryLoop->Disarm(); } catch (...) {}
+    try { if (updater != nullptr) updater->Disarm(); } catch (...) {}
 
     return 0;
 }

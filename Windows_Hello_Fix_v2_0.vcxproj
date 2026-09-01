@@ -132,6 +132,7 @@
     <Reference Include="System.Drawing" />
     <Reference Include="System.Windows.Forms" />
     <Reference Include="System.Xml" />
+    <Reference Include="System.Net.Http" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="MyForm.h">
@@ -140,6 +141,14 @@
     <ClInclude Include="src\core\MyForm.h" />
     <ClInclude Include="src\watchdog\CameraFailsafe.h" />
     <ClInclude Include="src\watchdog\RecoveryLoopFailsafe.h" />
+    <ClInclude Include="src\updater\UpdateVersion.h" />
+    <ClInclude Include="src\updater\UpdateChannel.h" />
+    <ClInclude Include="src\updater\UpdateModels.h" />
+    <ClInclude Include="src\updater\UpdateState.h" />
+    <ClInclude Include="src\updater\GitHubReleaseClient.h" />
+    <ClInclude Include="src\updater\UpdateInstaller.h" />
+    <ClInclude Include="src\updater\Updater.h" />
+    <ClInclude Include="src\updater\UpdaterUI.h" />
     <ClInclude Include="ProductionUtilities.h" />
     <ClInclude Include="resource.h" />
     <ClInclude Include="resource1.h" />
@@ -160,6 +169,14 @@
     <ClCompile Include="src\core\MyForm_UI.cpp" />
     <ClCompile Include="src\watchdog\CameraFailsafe.cpp" />
     <ClCompile Include="src\watchdog\RecoveryLoopFailsafe.cpp" />
+    <ClCompile Include="src\updater\UpdateVersion.cpp" />
+    <ClCompile Include="src\updater\UpdateChannel.cpp" />
+    <ClCompile Include="src\updater\UpdateModels.cpp" />
+    <ClCompile Include="src\updater\UpdateState.cpp" />
+    <ClCompile Include="src\updater\GitHubReleaseClient.cpp" />
+    <ClCompile Include="src\updater\UpdateInstaller.cpp" />
+    <ClCompile Include="src\updater\Updater.cpp" />
+    <ClCompile Include="src\updater\UpdaterUI.cpp" />
   </ItemGroup>
   <ItemGroup>
     <Xml Include="WindowsHelloFix_TaskSchedule.xml" />
