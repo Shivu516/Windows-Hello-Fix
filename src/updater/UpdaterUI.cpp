@@ -3,7 +3,7 @@
 #include <windows.h>
 #include "UpdaterUI.h"
 #include "UpdateInstaller.h"
-#include "MarkdownRenderer.h"
+#include "HtmlRenderer.h"
 using namespace System;
 using namespace System::Drawing;
 using namespace System::Windows::Forms;
@@ -125,8 +125,8 @@ void UpdaterPopup::RefreshNotes(){
  if(r==nullptr){ rtbNotes->Clear(); rtbNotes->AppendText("No release selected."); pnlWarning->Visible=false; linkViewOnGithub->Visible=false; return; }
  pnlWarning->Visible=!r->HasUpdaterSupport;
  linkViewOnGithub->Visible=!String::IsNullOrEmpty(r->HtmlUrl); linkViewOnGithub->Tag=r->HtmlUrl;
- // Render markdown
- try{ MarkdownRenderer::Render(rtbNotes, r->Body); }catch(...){ try{ rtbNotes->Text=r->Body!=nullptr?r->Body:""; }catch(...) {}}
+ // Render via HTML pipeline: markdown → controlled HTML → RichTextBox
+ try{ HtmlRenderer::Render(rtbNotes, r->Body); }catch(...){ try{ rtbNotes->Text=r->Body!=nullptr?r->Body:""; }catch(...) {}}
 }
 void UpdaterPopup::UpdateButtonStates(){
  if(updater==nullptr||updater->State==nullptr) return; auto st=updater->State; UpdaterStatus s=st->Status; bool isChecking=s==UpdaterStatus::Checking; bool isDownloading=s==UpdaterStatus::Downloading; bool isInstalling=s==UpdaterStatus::Installing;

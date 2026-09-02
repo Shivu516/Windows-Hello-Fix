@@ -2127,4 +2127,299 @@ src/core/* (7), src/watchdog/* (4), x64/Release/install_script.nsi (for UI rewor
 * **DPI regression:** Remove `<dpiAware>` if added, rebuild — bitmap-scale returns.
 * **Uninstall safety:** `x64/Release/install_script.nsi` `Section Uninstall` unchanged (add `Delete "$APPDATA\...\updater_cache.json"` later, safe to leave).
 
+# Appendix — Updater Release Preview — Markdown → HTML Rework (Issue #8) — PLANNING ONLY
+
+> **Status: DRAFT — Planning Complete 2026-09-01 — Implementation Pending Review**
+> **Branch: `updater` (on top of updater UI rework)**
+> **Plan date: 2026-09-01**
+> **Issue: https://github.com/Shivu516/Windows-Hello-Fix/issues/8**
+> **Canonical reference: https://github.com/Shivu516/Windows-Hello-Fix/releases/tag/v2.0.0**
+> **Core policy: `src/core/` ZERO changes — `src/watchdog/` ZERO changes — `src/updater/` + `main.cpp` only**
+
+---
+
+## 1. Current Release-Data Pipeline
+
+```
+GitHub API  GET /repos/Shivu516/Windows-Hello-Fix/releases?per_page=20&page=1
+  Headers: User-Agent WindowsHelloFix-Updater/1.0, Accept: application/vnd.github+json, If-None-Match ETag
+  → GitHubReleaseClient.cpp:136 resp->Content->ReadAsStringAsync()->Result  (HttpClient 15s, UTF-8 → UTF-16 String, body JSON escapes \r\n \" remain as 5C 72 etc)
+  → UpdateModels::GetJsonStringField(body) (UpdateModels.cpp:140-175) — finds "body": "…", collects chars between quotes, handles escapes via esc flag, returns UnescapeJsonString(sb->ToString())
+  → UpdateModels::UnescapeJsonString (73-101) — \n→LF, \r→CR, \t, \", \\, \/, \uXXXX → wchar_t, surrogate pairs split
+  → GitHubRelease.Body (UpdateModels.cpp:275) — stored as System::String UTF-16, Version parsed via UpdateVersion::Parse, Channel via ChannelHelper, HasUpdaterSupport via IsUpdaterSupported()
+  → UpdateState::CachedReleases + SerializeReleasesToCacheJson (346-385, EscapeForJson 103-117) → File::WriteAllText(updater_cache.json) → LoadCacheFromDisk (218-273, File::ReadAllText, TryDeserializeCacheJson 388-447 re-uses GetJsonStringField, bridges "tag" → "tag_name")
+  → UpdateState::GetAllReleasesSorted() (new) → UpdaterUI::cmbRelease.Items (tag strings only, sorted Version.CompareTo descending)
+  → UpdaterPopup::OnReleaseChanged → MarkdownRenderer::Render(rtbNotes, selected->Body) (UpdaterUI.cpp:129)
+  → RichTextBox rtbNotes (UpdaterUI.cpp:82, ReadOnly WordWrap SystemColors.Window, 336×140) + DetectUrls false, LinkClicked → OpenUrl(https://github.com allow-list)
+```
+
+Single `per_page=20` covers all releases (verified v2.1.0 + v2.0.0 + v1.0.0, asset Windows_Hello_Fix_Setup.exe); `ETag 304` reduces to 1 call; `6h` timer + `30m` cooldown (`Updater.cpp:49,140`).
+
+---
+
+## 2. Exact Source of `92r92n` Corruption
+
+**Not API:** Live `curl https://api.github.com/repos/Shivu516/Windows-Hello-Fix/releases/tags/v2.0.0 | od -c` shows `5C 72 5C 6E` (`\r\n`) and `5C 22` (`\"`) — correct JSON escapes. After `ReadAsStringAsync`, .NET decodes UTF-8 to UTF-16, `json` still contains `5C 72` two-char escapes. **API encoding OK.**
+
+**Not Markdown parser stripping:** `MarkdownRenderer.cpp:31` `Replace("\r\n","\n")` is correct (`ldstr "\r\n"` in IL) but never matches `92r92n` (no `0D 0A`), so it leaves `92r92n` literal.
+
+**Root = C++/CLI String conversion — `StringBuilder::Append(char)` overload bug (`UpdateModels.cpp`):**
+
+* `GetJsonStringField 158-164`:
+  ```cpp
+  if (esc) { sb->Append('\\'); sb->Append(c); } // '\\' is 8-bit char 92 → Append(int32) → "92"
+  ```
+  IL `ldc.i4.s 92 + call Append(int32)` → decimal `"92"` not `'\'. For JSON `\r` (`5C 72`) → `"92"+"r"` = `"92r"`; `\r\n` → `"92r92n"` (`39 32 72 39 32 6E`) — **exact malformed string in `%APPDATA%\updater_cache.json` (`39 32 72…`)**.
+
+* `UnescapeJsonString 82-86`:
+  ```cpp
+  if (n=='n') sb->Append('\n'); // '\n' char 10 → Append(int32) → "10"
+  ```
+  IL `ldc 10 + Append(int)` → `"10"` decimal. Would corrupt even if `GetJsonStringField` were fixed.
+
+* `EscapeForJson 108-113` uses **string literals** `sb->Append("\\\"")` (`ldstr`) — correct, so it faithfully writes corrupted `Body` as `"92r92n"` verbatim.
+
+Cache `TryDeserializeCacheJson 428-439` re-uses `GetJsonStringField` on `updater_cache.json` where body has no backslashes (`39 32 72`), so `esc` never true → `92r` preserved forever.
+
+**Fix:** Change all `Append(charLiteral)` to wide `L'\\'`/`L'\n'`/`L'\r'`/`L'\t'`/`L'"'` or `Append("\\")` string overload: `sb->Append(L'\\')` → `Append(Char)`.
+
+---
+
+## 3. Current MarkdownRenderer Limitations
+
+`MarkdownRenderer.h:9` `Render(RichTextBox^, String^)` direct `Markdown→RTF` (~360 lines, `MarkdownRenderer.cpp:11-360`):
+
+* Supported: headings `#`/`##`/`###` → Bold 12/10.5/9.5 `AppendHeading:131`, `hr ---` → `─`, `blockquote >` → `#605E5C`, fenced ``` ``` → `Consolas 8.5 #F5F5F5`, `ul -/*` / `ol 1.` → `•/1.` `AppendListItem:318`, inline `**bold**` `` `code` `` `[text](https://...)` via `ParseInline:147-241` `IndexOf` scan + `AppendTextWithStyle:249`.
+* **Gap:** Italic `*text*` / `_` not handled — `italicStar` variable `156` computed but never used, `243` comment "best-effort". So `*italic*` stays plain.
+* **Colors hard-coded:** `AppendHeading #1A1A1A 131`, `code #F3F3F3 260`, `hr #E1E1E1` — not `SystemColors`.
+* **Heading stripping perception:** `AppendHeading` removes `#` prefix (`trimmed->Substring(4)`) — correct rendering, but with corrupted `92r92n` body the `Replace("\r\n")` fails → single line `"92r92n# Heading"` not recognized as heading → appears as literal `#` + `92r`.
+
+Visually inadequate: no tables/images (intentional), but `hard White` `rtb->BackColor SystemColors::Window` is correct; issue was data corruption, not renderer logic for headings.
+
+---
+
+## 4. Why Markdown Output Is Visually Inadequate
+
+* Single `Replace("\r\n")` flatten leaves `92r` visible as text (`92r92n` spans).
+* `Label` previous renderer truncated `Substring(0,200)` mid-surrogate → half-surrogate `�`/`â`; `RichTextBox` after fix still shows `92r` because data corrupted before render.
+* Markdown syntax shown raw when data corrupted (headings not detected due to no real line breaks).
+* Even with fixed data, current renderer only does minimal `**`/`code`/`[link]` — italic missing, no `SystemColors` theming, hard `#1A1A1A`.
+
+---
+
+## 5. Candidate Rendering Architectures
+
+| Strategy | Correctness | Dependency | Unicode | Security | Maintenance | Offline | Quality | Build |
+|---|---|---|---|---|---|---|:---|:---|
+| **A. Custom lightweight Markdown→HTML** hand-rolled | Good for subset | 0 | must handle surrogate | Risk: must strip `<script` / `javascript:` | Owned, deterministic | Perfect | Depends on renderer | None |
+| **B. Small library (Markdig/md4c)** | Excellent full GFM | 300KB-1MB + NuGet restore fragile in C++/CLI | OK | Allows raw HTML by default → need `DisableHtml` + XSS | External CVE | Offline OK | Better tables | Adds restore, enlarges Setup.exe 681KB→1.2MB |
+| **C. GitHub Markdown API** `POST api.github.com/markdown` | Perfect fidelity | 0 binary but network | OK | GitHub sanitizes but still CSP | API drift | **Fails offline** (violates 60/h + `304` single-call) | Perfect | Adds latency per dropdown change |
+| **D. Existing `MarkdownRenderer` direct `Md→RTF`** | Sufficient for headings/bold/lists/links/code/blockquote/hr | **0** owned 360 lines | Explicit `Segoe UI Emoji` per run `GetFontForRun:281` | Strongest — no HTML emitted, `SelectionFont` only | Low, 10-line fix for italic | Perfect cached | GDI consistent | **0** |
+| **E. Hand-rolled `Md→HTML` + sanitizer + `HTML→RTF`** | Same as A + extra step | 0 + sanitizer | Same | Need sanitizer for HTML intermediate | Two conversions | Offline OK | Marginally better | None |
+
+**Chosen for file structure:** If HTML pipeline required, prefer **A/E hybrid as `HtmlRenderer`**: keep `MarkdownRenderer` internal `Md→Html` string step, then `HtmlRenderer::Render` does `Html→RTF` via same `RichTextBox` logic (no new renderer control). This satisfies “Markdown→controlled HTML→renderer” while reusing proven `RTF` path.
+
+---
+
+## 6. Chosen HTML Architecture
+
+**Markdown→HTML: (A) Custom lightweight `Markdown→HTML` controlled converter** (hand-rolled, owned, ~150 lines) — not B (bloat) nor C (offline fail). **HTML renderer: RichTextBox with controlled HTML→RTF conversion** (current control `UpdaterUI.cpp:82` `RichTextBox 336×140 ReadOnly ScrollBars Vertical SystemColors.Window`) — not `WebBrowser` (Trident IE7 quirks, `javascript:` exec, deprecated) nor `WebView2` (150-180 MB runtime + `WebView2Loader.dll`, breaks Mica, `TopMost` child `HWND` opaque, 500ms-1s cold launch, 60MB RAM, needs `Edge` runtime, `install_script.nsi` assumes offline). Keep `src/updater` separation (`GitHubReleaseClient` API, `UpdateModels` metadata, `UpdateVersion` compare, `UpdateState` cache, `UpdateInstaller` download, `Updater` orchestration, `UpdaterUI` interface, `HtmlRenderer` rendering).
+
+**Why this pair wins for HelloFix:**
+
+* Matches all 7 spec axes without HTML: direct RTF emission eliminates `HTML sanitization` entirely — no `script/javascript:/data:/iframe/onload` surface (`MarkdownRenderer.cpp:9,19,215`). `A/E` reintroduce it; `B/C` add weight.
+* Zero deployment: `Release|x64` exe stays ~580KB; no `NuGet` restore, no `WebView2Loader`, no `Edge` runtime check. `vcxproj:130 System.Net.Http` only.
+* Security strongest: link model is data-only → `RichTextBox::LinkClicked` allow-list `https://github.com` (`UpdaterUI.cpp:154`). Markdown body from `GitHubReleaseClient.cpp:136` never `eval`s.
+* Offline/perf contract: render on `OnReleaseChanged` only, not poll; `SuspendLayout/Clear/ResumeLayout` single pass. Cached `Body` rendered offline (`Updater.cpp:258 <24h`).
+* Theme/Mica/DPI: `RichTextBox` `SystemColors::Window/WindowText/ControlText/HotTrack` inherits `EnableVisualStyles` + DWM/Mica, high-contrast, `GetScaleFactor` DPI scaling. `WebView2` child `HWND` breaks this.
+
+---
+
+## 7. Markdown-to-HTML Strategy
+
+Lightweight owned converter in `HtmlRenderer` (or `MarkdownRenderer::ToHtml`):
+
+```
+String^ HtmlRenderer::MarkdownToHtml(String^ md)
+  normalized = md->Replace("\r\n","\n")->Replace("\r","\n") // after fixing 92r bug, this will see real \n
+  lines = normalized->Split('\n')
+  inCodeBlock=false
+  for each line:
+    if ``` toggle → <pre><code> / </code></pre>
+    else if #/##/### → <h1>/<h2>/<h3> escapedText </h1>...
+    else if "---" → <hr/>
+    else if >  → <blockquote>escaped</blockquote>
+    else if "- "/"* " → <li> → wrap contiguous <ul>
+    else if "1. " → <li> → <ol>
+    else if inline **, `, [text](url) → <strong>, <em>, <code>, <a href="https://...">
+    else <p>escaped</p>
+  Escape: & → &amp;, < → &lt;, > → &gt;, " → &quot; BEFORE wrapping, then allow only generated tags.
+  Sanitize: strip <script, <iframe, <object, <embed, onload=, onclick=, javascript:, data:, file:, vbscript:, style:expression — via regex Remove "<[^>]*on\w+=..." + allow-list href="https?://"
+  Return: "<html><head><meta charset=utf-8><style>h1{font-size:14pt...} ...</style></head><body>...</body></html>" but for RichTextBox we can keep fragment without <html> wrapper and directly parse.
+```
+
+Alternatively keep `MarkdownRenderer::Render` as `Markdown→RTF` and add `ToHtml` that reuses same scan but emits HTML string — `HtmlRenderer::Render` calls `ToHtml` then `HtmlToRtf` (same tag handlers as current `AppendHeading` etc, but source is HTML tags). This satisfies “controlled HTML” without adding library.
+
+---
+
+## 8. HTML Safety / Sanitization Strategy
+
+`HtmlRenderer` treats release body as **data**:
+
+* Escape raw HTML before generation (`HttpUtility::HtmlEncode` or manual `&lt;`).
+* Generate only allow-list tags: `h1/h2/h3`, `p`, `strong`, `em`, `code`, `pre`, `ul/ol/li`, `a`, `blockquote`, `hr`, `br`.
+* Link `href` allow-list: `https://` and `http://` (prefer `https://github.com` but allow any `https`), reject `javascript:`, `data:`, `file:`, `vbscript:`, `on*=` attributes, `style`.
+* No `WebBrowser` `AllowWebBrowserDrop`, no `WebView2` `ScriptEnabled` — use `RichTextBox` which never executes JS.
+
+---
+
+## 9. Unicode / Emoji Strategy
+
+Fix complete path:
+
+* **HTTP:** `ReadAsStringAsync` decodes UTF-8 correctly (already).
+* **JSON:** Fix `Append(L'\\')` etc so `\uD83D\uDE80` becomes surrogate pair `0xD83D 0xDE80` correctly; `Unescape` must combine `IsHighSurrogate`/`IsLowSurrogate` into single `wchar_t` pair or keep as two `wchar_t` — .NET `String` UTF-16 stores emoji as two `wchar_t`, `RichTextBox` with `Segoe UI Emoji` renders if font fallback used. Never `Substring` mid-high-surrogate (check `IsHighSurrogate(text[cut])` then extend).
+* **Markdown→HTML:** Preserve `&` → `&amp;` but keep emoji verbatim (no `&#x1F680;` needed).
+* **UI:** `MarkdownRenderer::GetFontForRun` already does `IsHighSurrogate` → `Font("Segoe UI Emoji", baseSize)` per-run (`MarkdownRenderer.cpp:281-289`) — keep. Ensure `rtb->Font = Segoe UI 9` base, emoji runs use Emoji font.
+
+---
+
+## 10. Heading / List / Link / Code / Blockquote Support
+
+* **Headings:** `#`/`##`/`###` → `<h1>/<h2>/<h3>` → `Bold 12/10.5/9.5pt #1A1A1A` (or `SystemColors::ControlText` with size scale), `AppendHeading 131` handles.
+* **Lists:** `*`/`-` → `<ul><li>• `, `1.` → `<ol><li>1. `, `AppendListItem:318` with `•` indent 12px.
+* **Links:** `[text](https://...)` → `<a href="https://...">text</a>` → `Color #0067B8 Underline`, `LinkClicked` allow-list `https://github.com` (`UpdaterUI.cpp:154`).
+* **Code:** `` `code` `` → `<code>` → `Consolas 8.5 #F3F3F3` `AppendTextWithStyle 260`, ```` ``` ```` block → `<pre><code>` → `Consolas 8.5 #F5F5F5` `AppendCodeBlock 300`.
+* **Blockquote:** `>` → `<blockquote>` → `#605E5C` grey `AppendBlockquote 330`.
+* **HR:** `---` → `<hr/>` → `─` `AppendHorizontalRule 342`.
+* **Br:** `\n` → `<br/>` → `\par` in RTF.
+
+---
+
+## 11. UI Renderer Choice
+
+**Control:** `RichTextBox` (`UpdaterUI.cpp:82` `ReadOnly WordWrap SystemColors.Window 336×140`) — `ReadOnly`, `ScrollBars Vertical`, `BorderStyle FixedSingle`, `BackColor SystemColors.Window`, `Font Segoe UI 9`, `DetectUrls false` (we handle links), `DoubleBuffered true` (already). **Not** `WebBrowser` (IE quirks) nor `WebView2` (bloat, Mica break, 500ms launch, 60MB).
+
+**Why:** `RichTextBox` is in `System.Windows.Forms` already (`vcxproj:131`), inherits `SystemColors` + `EnableVisualStyles` + DWM/Mica, high-contrast, DPI via `GetScaleFactor`, `SuspendLayout/Clear/ResumeLayout` single pass, render only on `SelectedIndexChanged`.
+
+---
+
+## 12. Mica / Transparency Strategy
+
+* **Not fix data:** `app.manifest:1-11` only `assemblyIdentity 2.1.0.0` + `requireAdministrator` (no `<dpiAware>`), `MyForm_Core.cpp:119-180` default `Control` back, `main.cpp:12` `EnableVisualStyles`.
+* **Why updater broke:** Hard `White 330` + hard `FromArgb` literals override system palette; opaque `Form` without `DwmExtendFrameIntoClientArea` does not participate in DWM backdrop. `Translucent Windows` hooks owner `HWND` but not popup `HWND`.
+* **Strategy:** Use `SystemColors::Window`/`ControlText`/`HotTrack` (`UpdaterUI.cpp:64` already after fix), `DoubleBuffered true`, normal `Form` `FixedDialog` `SystemColors.Window`. Optionally call `DwmSetWindowAttribute(DWMSBT_MAINWINDOW)` if `IsWindows11OrGreater` (22000+) — but otherwise inherit gracefully. Document that true dark mode is not implemented; updater will follow system `Control` (light) and high-contrast via `SystemColors`.
+
+---
+
+## 13. Dark / Light Behavior
+
+* Investigate: WinForms defaults → `SystemColors` + `EnableVisualStyles` + `Control` back; no custom dark-mode framework. `Translucent Windows` / Mica are external tool/DWM, not app code.
+* Renderer should be compatible with whatever GUI actually provides: use `SystemColors::WindowText` for text, `SystemColors::ControlText` for glyph, `SystemColors::HotTrack` for links, `SystemColors::GrayText` for blockquote, `Color::FromArgb(243,243,243)` for code back but blend with `SystemColors::ControlLight` if high-contrast.
+* Do not invent independent dark-mode framework.
+
+---
+
+## 14. Exact File Structure
+
+```
+src/updater/MarkdownRenderer.h/.cpp  — REMOVE (replaced by HtmlRenderer, per prompt "prefer only HTML")
+src/updater/HtmlRenderer.h/.cpp      — NEW: Render(RichTextBox^, String^ markdown) → MarkdownToHtml + Sanitize + HtmlToRtf (uses same Append* helpers, ~280 lines). Alternatively rename MarkdownRenderer → HtmlRenderer.
+src/updater/UpdateModels.cpp         — FIX: 6× Append(char) → Append(L'\\')/Append("\n") etc in GetJsonStringField 158-164 and UnescapeJsonString 82-86
+src/updater/UpdateState.h/.cpp       — keep GetAllReleasesSorted (already added), no channel UI
+src/updater/UpdaterUI.h/.cpp         — keep vector icon + SystemColors + RichTextBox; wire HtmlRenderer::Render instead of MarkdownRenderer::Render; fix Replace("\r\n") already correct after data fix
+```
+
+If `MarkdownRenderer` can be cleanly repurposed, keep file but change class name to `HtmlRenderer` and add `ToHtml` method — task says prefer clear responsibility-based naming, so **replace** (rename) to `HtmlRenderer`.
+
+**Outside protected (allowed):**
+```
+Windows_Hello_Fix_v2_0.vcxproj   — replace <ClInclude MarkdownRenderer.h> with HtmlRenderer.h, <ClCompile MarkdownRenderer.cpp> with HtmlRenderer.cpp
+Windows_Hello_Fix_v2_0.vcxproj.filters — same
+docs/Plan.md                     — this appendix (23 items)
+```
+
+**Not touched:** `src/core/* (7), src/watchdog/* (4), main.cpp (updater owned outside src/core already), x64/Release/install_script.nsi`
+
+---
+
+## 15. Core / Watchdog Isolation Strategy
+
+**Rule:** `src/core/*` 7 files and `src/watchdog/*` 4 files remain **byte-for-byte**.
+
+**Integration stays via `main.cpp` (`main.cpp:1-82`):** Already `Updater` owned outside `src/core` (mirrors `RecoveryLoopFailsafe` precedent `AGENTS.md §1`). Icon via `ownerForm->Controls->Add(iconPanel)` dynamic injection at `UpdaterUI::InstallIcon 85` — no `MyForm_Core.cpp:119-180 InitializeComponent` edit.
+
+**If unavoidable core change discovered (per §25):** STOP and document file, lines, technical blocker, smallest alternative. None anticipated.
+
+**For this rework:** `src/core changed: NO`, `src/watchdog changed: NO` — verified `git diff -- src/core src/watchdog` empty.
+
+---
+
+## 16. Performance
+
+* One `Panel` icon `20×20*scale` + `Timer 500ms` pulse only when `Checking/Downloading`.
+* Single `UpdaterPopup` `Form` 360×420, created on first `ShowPopup`, reused (`popup==nullptr||IsDisposed` check). No multiple windows.
+* No continuous repaint: `Invalidate` only on `StateChanged`/`PulseTick`/`MouseEnter`.
+* GitHub poll `6h` + `30m` cooldown, `ETag 304` reduces bandwidth. Release list `per_page=20` (5-20 KB JSON) parsed once per `200`.
+* HTML render only on `SelectedIndexChanged` (`RefreshNotes` → `HtmlRenderer::Render`), not per-frame. `MarkdownToHtml` + `Sanitize` + `HtmlToRtf` single pass per selection.
+
+---
+
+## 17. Error Handling
+
+* `GitHubReleaseClient::DoFetch` handles `304 NotModified` (use cache), `429 RateLimited` (use stale <24h, banner), `5xx`/`400` → `Offline` with stale <24h fallback, `Malformed` → `Error` banner, `Cancelled` → `Idle`. All `StateChanged` → `RefreshForExternalChange` without crash.
+* `HtmlRenderer::Render` wrapped `try { } catch(...) { rtb->Text = markdown; }` fallback to plain text if RTF emission throws (e.g. malformed `**unclosed`).
+* `File::ReadAllText/WriteAllText` for `updater_cache.json` with `try/catch` → `LoadCacheFromDisk` returns false, `SaveCacheToDisk` atomic `WriteAllText(temp)+Move`.
+
+---
+
+## 18. Offline Behavior
+
+* `UpdateState::LoadCacheFromDisk` reads `updater_cache.json` (UTF-8) → `GetAllReleasesSorted()` → `cmbRelease` populated even if `HttpClient` `NetworkError`/`Offline`. `Updater::CheckThreadProc` → `FetchResult::NetworkError` → `SetStatus(Offline)` + `CacheUsed` banner if `LastCheckUtc <24h` else `Offline`.
+* `HtmlRenderer` renders `r->Body` from cache (already unescaped correctly after fix) — no network needed for notes. Links still require browser.
+
+---
+
+## 19. Release Selection Integration
+
+* `cmbRelease.SelectedIndexChanged` → `selectedRelease = list[SelectedIndex]` → `pnlWarning.Visible = !HasUpdaterSupport` → `HtmlRenderer::Render(rtbNotes, MarkdownToHtml(selected->Body))` → `UpdateButtonStates` (`Update`/`Reinstall`/`Downgrade` via `CompareTo`). `lblStatus` updated via `IsUpdateAvailable()` (`latest>installed`).
+
+---
+
+## 20. v1.0 / v2.0 Warning Integration
+
+* `if (!selectedRelease->HasUpdaterSupport)` where `HasUpdaterSupport = Version->IsUpdaterSupported()` (`UpdateVersion.cpp:32-38` `major>2 || major==2 && minor>=1`). Covers `v1.0.0`, `v2.0.0` and any future `<v2.1.0`.
+* `Panel pnlWarning 336×36 #FFF8E1` + `Label lblWarning 8pt` visible iff warning, `Label` `WordWrap` at `4,4` `328×28`: “⚠ This version does not include the in-app updater. Future updates will require manual download from GitHub.” Distinct from status, compact.
+
+---
+
+## 21. Icon Preservation
+
+* Download icon vector GDI path (`GraphicsPath` + `FillPolygon`) `1.5*scale` `Pen`, `SystemColors.ControlText` / `#005A9E` when `hasUpdate`, `SmoothingMode AntiAlias`, DPI-scaled `20*scale` panel, location `W-28*scale,192*scale`, `Transparent` parent `SystemColors.Control` with `DoubleBuffered`. Red dot `6dp*scale` `#D13438` white `1*scale` border at `W-7*scale`, visible only when `IsUpdateAvailable()`.
+
+---
+
+## 22. Detailed Test Matrix
+
+| Area | Case | Expected |
+|---|---|---|
+| **Basic** | `v2.0` body (emoji, headings, lists, `---`) | `MarkdownToHtml` → `HtmlRenderer` → headings Bold 12/10.5/9.5, lists `•`, no `92r` |
+| | `v2.1` (if exists), future `🚀` emoji | `Segoe UI Emoji` fallback, no `â` |
+| | long (>200 lines) scroll, empty `body` → “No release notes” | `RichTextBox` vertical scroll, no horizontal overflow |
+| | malformed `**unclosed` → plain | no crash, `try/catch` fallback |
+| **Formatting** | `H1`/`H2`/`H3` distinct size/bold, `**bold**`/`*italic*`, `ul` `•`, `ol 1.`, `[link](https)` clickable, `` `code` `` `#F3F3F3` `Consolas`, ```` ``` ```` block `#F5F5F5`, `> blockquote` grey, `---` `─` | `HtmlToRtf` via `SelectionFont/Color/BackColor` |
+| **Unicode** | `🚀` `U+1F680` surrogate, `✓` `U+2713`, `⚠` `U+26A0`, `⟳` `U+27F3`, quotes `“”`, non-ASCII | `IsHighSurrogate` → `Segoe UI Emoji`, no `â` |
+| **Security** | `body` containing `<script>alert(1)</script>`, `javascript:alert(1)`, `data:text/html`, `onload=`, `iframe` | stripped/escaped, not executed, links only `https` |
+| **UI** | normal Windows, Mica/Translucent `SystemColors.Window` blends, `light/dark` via `SystemColors`, DPI 100/150/200% icon `20*scale` dot `6dp*scale`, small window `360×420` scroll, long body scroll | no white artifact on dark, no blur |
+| **Regression** | updater icon, red dot, `cmbRelease` dropdown, `Update` button, status `✓/⚠`, `v1.0/v2.0` warning, main GUI, camera `Restore(true)`, watchdog `RecalculateLatest`, Issue #2 `BringWindowToFront` | unchanged, `diagnostic.log` no `Updater_*` during camera path |
+
+---
+
+## 23. Rollback Plan
+
+* Data fix rollback: `git checkout HEAD -- src/updater/UpdateModels.cpp` (re-introduces `92r` but restores prior behavior) + delete `updater_cache.json` + `Rebuild`.
+* Renderer rollback: `git checkout HEAD -- src/updater/MarkdownRenderer.* src/updater/UpdaterUI.*` + `git rm HtmlRenderer.*` + rebuild — `src/core` still zero. Or `MarkdownRenderer` fallback: if `HtmlRenderer::Render` throws, `rtb->Text = markdown` plain.
+* Cache corruption: delete `%APPDATA%\Windows Hello Fix\updater_cache.json` → `Idle`, `CheckAsync(true)` rebuilds.
+* Uninstall safety: `x64/Release/install_script.nsi` `Section Uninstall` unchanged.
+
 

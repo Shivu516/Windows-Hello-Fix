@@ -227,6 +227,17 @@ namespace Updater {
             DateTime lc;
             UpdateChannel ch;
             if (UpdateModels::TryDeserializeCacheJson(json, rels, et, lm, lc, ch)) {
+                // Detect corrupted cache from prior 92r bug (StringBuilder Append int) — discard if any body contains 92r92n
+                bool corrupted = false;
+                if (rels != nullptr) {
+                    for each (GitHubRelease^ r in rels) {
+                        if (r != nullptr && r->Body != nullptr && r->Body->Contains("92r92n")) { corrupted = true; break; }
+                    }
+                }
+                if (corrupted) {
+                    try { File::Delete(path); } catch (...) {}
+                    return false;
+                }
                 System::Threading::Monitor::Enter(syncRoot);
                 try {
                     cachedReleases = rels != nullptr ? rels : gcnew List<GitHubRelease^>();

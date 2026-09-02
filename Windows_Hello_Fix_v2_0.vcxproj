@@ -149,7 +149,7 @@
     <ClInclude Include="src\updater\UpdateInstaller.h" />
     <ClInclude Include="src\updater\Updater.h" />
     <ClInclude Include="src\updater\UpdaterUI.h" />
-    <ClInclude Include="src\updater\MarkdownRenderer.h" />
+    <ClInclude Include="src\updater\HtmlRenderer.h" />
     <ClInclude Include="ProductionUtilities.h" />
     <ClInclude Include="resource.h" />
     <ClInclude Include="resource1.h" />
@@ -178,7 +178,7 @@
     <ClCompile Include="src\updater\UpdateInstaller.cpp" />
     <ClCompile Include="src\updater\Updater.cpp" />
     <ClCompile Include="src\updater\UpdaterUI.cpp" />
-    <ClCompile Include="src\updater\MarkdownRenderer.cpp" />
+    <ClCompile Include="src\updater\HtmlRenderer.cpp" />
   </ItemGroup>
   <ItemGroup>
     <Xml Include="WindowsHelloFix_TaskSchedule.xml" />

@@ -353,7 +353,9 @@ Class Windows_Hello_Fix_v2_0.Updater.UpdaterPopup: AutoLayout, AnsiClass, Class,
   Methods:
     RefreshForExternalChange(): PrivateScope, Public, HideBySig
     SelectRelease(GitHubRelease): PrivateScope, Public, HideBySig
-Class Windows_Hello_Fix_v2_0.Updater.MarkdownRenderer: AutoLayout, AnsiClass, Class, Public, Sealed, BeforeFieldInit
+Class Windows_Hello_Fix_v2_0.Updater.HtmlRenderer: AutoLayout, AnsiClass, Class, Public, Sealed, BeforeFieldInit
     Void .ctor(): PrivateScope, Public, HideBySig, SpecialName, RTSpecialName
   Methods:
     Render(RichTextBox, String): PrivateScope, Public, Static, HideBySig
+    MarkdownToHtml(String): PrivateScope, Public, Static, HideBySig
+    SanitizeHtml(String): PrivateScope, Public, Static, HideBySig

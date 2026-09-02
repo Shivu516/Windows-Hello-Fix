@@ -77,14 +77,14 @@ namespace Updater {
         StringBuilder^ sb = gcnew StringBuilder(s->Length);
         for (int i = 0; i < s->Length; i++) {
             wchar_t c = s[i];
-            if (c == '\\' && i + 1 < s->Length) {
+            if (c == L'\\' && i + 1 < s->Length) {
                 wchar_t n = s[i + 1];
-                if (n == 'n') { sb->Append('\n'); i++; }
-                else if (n == 'r') { sb->Append('\r'); i++; }
-                else if (n == 't') { sb->Append('\t'); i++; }
-                else if (n == '"') { sb->Append('"'); i++; }
-                else if (n == '\\') { sb->Append('\\'); i++; }
-                else if (n == '/') { sb->Append('/'); i++; }
+                if (n == L'n') { sb->Append(L'\n'); i++; }
+                else if (n == L'r') { sb->Append(L'\r'); i++; }
+                else if (n == L't') { sb->Append(L'\t'); i++; }
+                else if (n == L'"') { sb->Append(L'"'); i++; }
+                else if (n == L'\\') { sb->Append(L'\\'); i++; }
+                else if (n == L'/') { sb->Append(L'/'); i++; }
                 else if (n == 'u' && i + 5 < s->Length) {
                     String^ hex = s->Substring(i + 2, 4);
                     try {
@@ -160,12 +160,12 @@ namespace Updater {
             wchar_t c = json[i];
             if (esc) {
                 // keep escaped as two chars for Unescape to handle
-                sb->Append('\\');
+                sb->Append(L'\\');
                 sb->Append(c);
                 esc = false;
-            } else if (c == '\\') {
+            } else if (c == L'\\') {
                 esc = true;
-            } else if (c == '"') {
+            } else if (c == L'"') {
                 return UnescapeJsonString(sb->ToString());
             } else {
                 sb->Append(c);

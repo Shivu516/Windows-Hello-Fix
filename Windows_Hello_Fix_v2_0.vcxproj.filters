@@ -51,7 +51,7 @@
     <ClInclude Include="src\updater\UpdaterUI.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="src\updater\MarkdownRenderer.h">
+    <ClInclude Include="src\updater\HtmlRenderer.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="resource.h">
@@ -140,7 +140,7 @@
     <ClCompile Include="src\updater\UpdaterUI.cpp">
       <Filter>Source Files\src\updater</Filter>
     </ClCompile>
-    <ClCompile Include="src\updater\MarkdownRenderer.cpp">
+    <ClCompile Include="src\updater\HtmlRenderer.cpp">
       <Filter>Source Files\src\updater</Filter>
     </ClCompile>
   </ItemGroup>
