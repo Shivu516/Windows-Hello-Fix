@@ -206,7 +206,7 @@ namespace Updater {
                 html->AppendFormat("<li>{0}</li>\n", esc);
                 continue;
             }
-            if (trimmed->StartsWith("• ") && trimmed->Length > 2) {
+            if (trimmed->StartsWith("* ") && trimmed->Length > 2) {
                 if (!inList || listType != "ul") { if (inList) { html->AppendFormat("</{0}>\n", listType); inList = false; listType = nullptr; } html->Append("<ul>\n"); inList = true; listType = "ul"; }
                 String^ item = trimmed->Substring(2);
                 html->AppendFormat("<li>{0}</li>\n", EscapeHtml(item));
@@ -344,7 +344,7 @@ namespace Updater {
                         }
                     }
                     else if (tag == "blockquote") { inBlockquote = true; }
-                    else if (tag == "li") { inLi = true; rtb->AppendText("  • "); }
+                    else if (tag == "li") { inLi = true; rtb->AppendText("  * "); }
                     else if (tag == "hr") { AppendHorizontalRule(rtb); }
                     else if (tag == "br") { rtb->AppendText("\n"); }
                     else if (tag == "p") { /* start paragraph */ }

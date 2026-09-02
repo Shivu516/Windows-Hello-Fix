@@ -48,20 +48,18 @@ namespace Updater {
     private:
         System::Windows::Forms::Form^ ownerForm;
         Updater^ updater;
-        System::Windows::Forms::Label^ lblReleaseCaption;
         System::Windows::Forms::ComboBox^ cmbRelease;
-        System::Windows::Forms::Label^ lblStatus;
-        System::Windows::Forms::Panel^ pnlWarning;
-        System::Windows::Forms::Label^ lblWarning;
         System::Windows::Forms::Button^ btnUpdate;
-        System::Windows::Forms::Label^ lblNotesHeader;
-        System::Windows::Forms::Panel^ separator;
+        System::Windows::Forms::Panel^ pnlPreview;
+        System::Windows::Forms::Label^ lblReleaseInfo;
+        System::Windows::Forms::Label^ lblStatusInside;
+        System::Windows::Forms::Label^ lblWarningInline;
         System::Windows::Forms::RichTextBox^ rtbNotes;
         System::Windows::Forms::LinkLabel^ linkViewOnGithub;
         System::Windows::Forms::ProgressBar^ progressBar;
-        System::Windows::Forms::Label^ lblStatusBanner;
         GitHubRelease^ selectedRelease;
         GitHubRelease^ pendingUpdateRelease;
+        bool IsDarkMode();
         void InitializeComponentPopup();
         void RefreshAll();
         void RefreshStatus();

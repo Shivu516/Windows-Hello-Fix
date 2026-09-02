@@ -2422,4 +2422,458 @@ docs/Plan.md                     — this appendix (23 items)
 * Cache corruption: delete `%APPDATA%\Windows Hello Fix\updater_cache.json` → `Idle`, `CheckAsync(true)` rebuilds.
 * Uninstall safety: `x64/Release/install_script.nsi` `Section Uninstall` unchanged.
 
+# Appendix — Updater UI / Release Preview Rework — Visual Reference-Driven Design (Issue #8) — PLANNING ONLY
+
+> **Status: DRAFT — Planning Complete 2026-09-01 — Implementation Pending Review**
+> **Branch: `updater` (on top of HtmlRenderer Markdown→HTML)**
+> **Plan date: 2026-09-01**
+> **Visual reference: Screenshot concept (left: HelloFix v2.1.0 dark Mica; right: Updater with top row `v2.0.0 ▼` + `Update`, single `Release Info` preview)**
+> **Issue: https://github.com/Shivu516/Windows-Hello-Fix/issues/8**
+> **Canonical reference: https://github.com/Shivu516/Windows-Hello-Fix/releases/tag/v2.0.0**
+> **Core policy: `src/core/` ZERO changes — `src/watchdog/` ZERO changes — `src/updater/` + `main.cpp` only**
+
+---
+
+## 1. Current UI Architecture
+
+**File `src/updater/UpdaterUI.h:46-87` / `UpdaterUI.cpp:58-150`:**
+
+* **Top row (current, fragmented):** `Label "Release" 8pt #605E5C at (12,12) 60×21` + `ComboBox cmbRelease at (74,12) 200×21 DropDownList Segoe UI 9` (`UpdaterUI.cpp:69-70`) → `y+=28` → `Label lblStatus 336×16 9pt` (`72`, green `#107C10` / yellow `#986F0B` via `RefreshStatus 92-107`) → `y+=18` → `Panel pnlWarning 336×36 #FFF8E1` (`74-76`, visible iff `!HasUpdaterSupport`) → `y+=40` → `Button btnUpdate 110×28` (`77`) at `(12, y)` left-aligned full-width row → `y+=34` → `Label lblNotesHeader "Release notes" 8pt Bold #605E5C` (`79`) → `Panel separator 1px #E1E1E1` (`81`) → `RichTextBox rtbNotes 336×140 ReadOnly Vertical SystemColors.Window` (`82`) → `LinkLabel linkViewOnGithub` (`84`) outside `rtbNotes` below separator → `ProgressBar 8px` + `lblStatusBanner`. **Result:** 6 separate surfaces, 62px vertical waste between dropdown and button, preview only 33% of window (`140` of `420`).
+
+**Owner:** `Updater` (`Updater.h:12-46`) owns `UpdateState`, `GitHubReleaseClient`, `UpdaterUI` (`Updater.cpp:20-30` timers 5s/6h). `main.cpp:62-73` `if(!isCommandWorker) gcnew Updater(%form)` + `Load+=OnOwnerLoad` + `InstallIcon()` via `Controls->Add` at `ComputeIconLocation 30-32` `W-28*scale,192*scale`. No `src/core` edit.
+
+---
+
+## 2. Current Rendering Pipeline
+
+```
+GitHub API  GET /releases?per_page=20 (ETag, User-Agent WindowsHelloFix-Updater/1.0)
+  → GitHubReleaseClient.cpp:136 ReadAsStringAsync UTF-8 → UTF-16 String (body escapes \r\n \" still 5C 72, now correctly L'\\' fixed)
+  → UpdateModels::GetJsonStringField 140-175 (now L'\\' Append(Char) correct) → UnescapeJsonString 73-101 (L'\n' etc) → GitHubRelease.Body UTF-16, Version via UpdateVersion::Parse, HasUpdaterSupport via IsUpdaterSupported()
+  → UpdateState::CachedReleases + SerializeReleasesToCacheJson 346-385 → File::WriteAllText(updater_cache.json) → LoadCacheFromDisk 218-251 (detects "92r92n" corrupted → File::Delete)
+  → UpdateState::GetAllReleasesSorted 112-144 (draft-filtered, descending CompareTo) → UpdaterUI::cmbRelease.Items (tag only, sorted)
+  → UpdaterPopup::OnReleaseChanged → HtmlRenderer::Render(rtbNotes, selected->Body) (UpdaterUI.cpp:129)
+  → HtmlRenderer.cpp:89-245 MarkdownToHtml (normalize \r\n→\n, line scan: ```→<pre>, #→<h1>, hr→<hr>, >→<blockquote>, ol/ul→<li>, p→<p>, inline **→<strong> etc, EscapeHtml &) → SanitizeHtml 33-87 (strip <script/on*/javascript:) → HtmlToRtf 263-399 (Regex <(/?)(\w+)> flags inStrong/inEm/inCode/inPre/inA/inBlockquote/inH1.. + AppendTextWithStyle Segoe UI 9 / Consolas 8.5 / Segoe UI Emoji per surrogate)
+  → RichTextBox rtbNotes 336×140 ReadOnly ScrollBars Vertical SystemColors.Window, WordWrap, DetectUrls false, LinkClicked → OpenUrl(https://github.com allow-list)
+```
+
+Single `per_page=20` covers `v2.1.0, v2.0.0, v1.0.0`; `ETag 304` single call.
+
+---
+
+## 3. Exact Causes of Visual Artifacts
+
+* **Fragmented panels:** Current has two status labels (`lblStatus 72` outside + `lblStatusBanner 87` for Checking) + separate `lblNotesHeader` + `separator` + `rtbNotes` + `linkViewOnGithub` outside → 6 surfaces. Desired is **single `Panel pnlPreview` with Dock** containing `Release Info` + status + title + notes + link.
+* **Top row split:** `cmbRelease Y=pad` then `y+=28` then `lblStatus` then `pnlWarning` then `btnUpdate Y+=74` → 62px waste. Desired needs `cmbRelease Width ~68%` + `btnUpdate X=Right+8 same Y` (requires deleting `y+=` stacking).
+* **Header outside preview:** `lblNotesHeader "Release notes"` separate `Label` not inside `rtbNotes`; screenshot's `Release Info` is **inside** scrollable preview as first `<h1>` or `Label` docked top.
+* **Status outside preview:** `lblStatus` shows only one side (`either` latest `or` installed). Desired shows **both**: `Current version: v2.1.0 - Latest Stable: v2.0.0` inside preview near top, green/yellow.
+* **Warning giant panel:** `pnlWarning 336×36 #FFF8E1 Border FixedSingle` is 8.5% height — screenshot shows none (or subtle inline). Violates “no giant background panel”.
+* **Heading size:** `HtmlToRtf 313` only sets `Color #1A1A1A` for `inH1`, not `FontSize 12pt Bold`. `AppendHeading 401-415` (12/10.5/9.5) never called from `HtmlToRtf`. Title renders same size as body.
+* **Spacing:** `HtmlToRtf` emits single `\n` for `p/li/h1` `353-368`; desired needs `\n\n` or `SelectionCharOffset` for readable `8px` paragraph gap + `12px` list indent (`HtmlRenderer.cpp:347 "  • "` minimal).
+* **Link outside vs inside:** `linkViewOnGithub` outside `rtbNotes` (`84` below `separator`). Screenshot puts `[View on GitHub]` **inside** preview bottom.
+
+---
+
+## 4. Exact Cause of Unicode Corruption
+
+* **Primary `92r92n`:** `UpdateModels.cpp:158-164` `sb->Append('\\')` with narrow `char 92` → `Append(int32)` → decimal `"92"`; `\r\n` (`5C 72 5C 6E`) → `"92r92n"` (`39 32 72 39 32 6E`) in `%APPDATA%\updater_cache.json`. **Fixed** to `L'\\'` (`Append(Char)`). Old cache auto-deleted via `UpdateState.cpp:230-234` `Body.Contains("92r92n")`.
+* **Remaining `â€¢`:** Bullet `• U+2022` (`E2 80 A2` UTF-8) inside `HtmlRenderer.cpp` source file: if file saved as UTF-8 **without BOM**, `CL.exe /clr` may interpret `•` as ANSI `windows-1252` `â€¢` (`E2→â, 80→€, A2→¢`). Current `HtmlRenderer.cpp:347` `AppendText("  • ")` contains literal `•`. On `C++/CLI` with `CharacterSet Unicode` (`vcxproj:35`), source should be **UTF-8 with BOM** or use `\u2022`. Fix: replace `•` with `L'\u2022'` or `"\u2022"` string, or save file as UTF-8 BOM.
+* **`<em>` literal:** If markdown `*italic*` not converted, `ParseInline` gap (previous `MarkdownRenderer` missing italic) would leave `*` raw; now `HtmlRenderer::MarkdownToHtml 183-184` handles `*`→`<em>` and `HtmlToRtf 304-308` handles `inEm→Italic`, so not bug after HTML pipeline. But old `UpdateModels` corruption left `"92r"` → `Replace("\r\n")` never matches → single line `"92r# Heading"` not recognized → `#` remains.
+
+---
+
+## 5. Current Updater Icon Implementation
+
+**Already fixed in prior rework** (`UpdaterUI.cpp:39-50`): `Panel 20×20*scale`, `GetScaleFactor()` via `CreateGraphics()->DpiX/96`, `OnIconPaint` vector GDI path (`Pen 1.5*scale`, Tray `Rect 4,14,12,2` + Stem `10,4→10,14` + Head triangle `6,12-14,12-10,18`, `FillPolygon`), `SmoothingMode AntiAlias`, `SystemDefault` hint, `SystemColors.ControlText` / `#005A9E` when `hasUpdate`, dot `6dp*scale #D13438` white `1*scale` border at `W-dot-1,1`. No `glyph="v"`, no `Segoe MDL2` font dependency, DPI-scaled, `Transparent` → `SystemColors.Control` with `DoubleBuffered`. **Preserve as-is; verify no regression.**
+
+---
+
+## 6. Target UI Derived from Supplied Image
+
+**Proportions (360×~480, dark Mica, compact):**
+
+```
+┌──────────────────────────────┐  UpdaterPopup 360×460 (Max 360×520) SystemColors.Window
+│ [v2.0.0        ▼] [ Update ] │  Top row pad 12: cmbRelease ~68% (228px) | btnUpdate ~30% (100px) same Y=12, Height 21 vs 28
+│ ┌──────────────────────────┐ │  Panel pnlPreview Dock Fill, BackColor SystemColors.Window, Border FixedSingle #E1E1E1, Padding 8
+│ │ Release Info             │ │  Label lblReleaseInfo Bold 11pt #1A1A1A inside preview Dock Top
+│ │ Current version: v2.1.0  │ │  Label lblStatusInside 9pt #107C10 (up-to-date) / #986F0B (outdated) inside preview
+│ │ - Latest Stable: v2.0.0  │ │  (single line, both values)
+│ │                          │ │
+│ │ 🚀 Version 2.0 - …       │ │  RichTextBox rtbNotes Dock Fill, 336×~200, ReadOnly Vertical SystemColors.Window, rendered via HtmlRenderer
+│ │ This major update is…    │ │  (h1 14pt Bold, p 9pt, ul • 12px indent, code Consolas 8.5, blockquote grey)
+│ │ • Re-written core…       │ │
+│ │ • Improved stability     │ │
+│ │                          │ │
+│ │ [View on GitHub]         │ │  LinkLabel inside preview bottom Dock (lighter blue #63A8F8 if dark, else #0067B8)
+│ └──────────────────────────┘ │
+└──────────────────────────────┘
+```
+
+* No channel selector (already removed), no repository preview (already removed), no giant warning panels.
+
+---
+
+## 7. Release Dropdown Design
+
+**Control:** `ComboBox cmbRelease DropDownList Segoe UI 9` `Location (12,12) Size 228×21` (68% of `336` inner), `FlatStyle` default, `DrawMode Normal`. **Items:** `tag` only (`v2.1.0`, `v2.0.0`, `v1.0.0`…), sorted descending `Version.CompareTo` via `UpdateState::GetAllReleasesSorted()` (no channel filter), newest first, installed `✓` suffix (`tag + " ✓ installed"` if `CompareTo==0`). Default `SelectedIndex` preserves `prevTag` else `LatestForChannel` else `0`. No asset URLs/dates in dropdown.
+
+---
+
+## 8. Update Button Placement
+
+**Beside dropdown:** `Button btnUpdate Location = Point(cmbRelease.Right + 8, 12) Size 100×21` (30% width, same `Y`, height matches `ComboBox` 21, not 28). `UseVisualStyleBackColor true`, `FlatStyle Standard`. **Text dynamic:** `hasAsset` else `"No installer"`; `CompareTo` `<0→"Downgrade"`, `==0→"Reinstall"`, `>0→"Update"` (`UpdateButtonStates 131-139`). Shared top row `y=12` saves 62px vertical, matches screenshot.
+
+---
+
+## 9. Release Info Placement
+
+**Inside preview:** No separate `lblNotesHeader` outside. Create `Panel pnlPreview Dock Fill` (fills between top row and bottom). Inside `pnlPreview`:
+
+* `Label lblReleaseInfo Dock Top Height 22 Text "Release Info" Font Segoe UI 11 Bold ForeColor #1A1A1A` (or `SystemColors.ControlText`, 12pt if `GetScaleFactor`).
+* `Label lblStatusInside Dock Top Height 16 Font 9` `String::Format("Current version: {0} - Latest Stable: {1}", cur, latest?.Tag)` `ForeColor Green #107C10` or Yellow `#986F0B` (text only, no background).
+* `RichTextBox rtbNotes Dock Fill` below them, `Margin 0`.
+
+This makes status scroll with preview? Keep status outside scroll for always-visible: `pnlPreview.Controls.Add(lblReleaseInfo); Add(lblStatusInside); Add(rtbNotes)` with `rtbNotes Dock Fill` below two docked-tops → status stays top of preview, notes scroll.
+
+---
+
+## 10. HTML/Markdown Rendering Options
+
+| Option | Fidelity | Emoji | Security | Mica | Deploy | Startup |
+|---|---|---|---|---|---|---|
+| **A. Markdown→RTF** (current `MarkdownRenderer` direct) | Good for subset | `Segoe UI Emoji` per-run | Strong (no HTML) | `SystemColors` inherits | 0 | 0ms |
+| **B. Markdown→controlled HTML→RichTextBox** (chosen `HtmlRenderer` `MarkdownToHtml→Sanitize→HtmlToRtf`) | Same, plus HTML sanitization layer | Same | Controlled allow-list `h1/p/strong/em/code/pre/ul/ol/li/a/blockquote/hr/br` + strip `script/on*` + `href https` only | Same `SystemColors` | 0 | ~5ms |
+| **C. WebView2** | Perfect | Perfect | Sandbox but `javascript:` via API, need CSP | GPU `HWND` opaque breaks Mica, extra process | 150MB runtime | 500ms |
+| **D. GitHub Markdown API** | Perfect | Perfect via GitHub | GitHub sanitizes | Same HTML | Needs `Edge` | Fails offline (60/h) |
+| **E. WebBrowser Trident** | IE7 quirks | Poor emoji | Worst (`ActiveX`) | Deprecated | Regkey elevation | 200ms |
+
+---
+
+## 11. Selected Rendering Strategy
+
+**Keep `HtmlRenderer` pipeline: `Markdown → controlled HTML → RichTextBox` (`HtmlRenderer.h:9` `Render` = `MarkdownToHtml 89-245` + `SanitizeHtml 33-87` + `HtmlToRtf 263-399`).** This satisfies prompt “Markdown → controlled HTML → updater HTML renderer/control” with **controlled HTML** (allow-list `h1/h2/h3, p, strong/em, code/pre, ul/ol/li, a, blockquote, hr, br` + `EscapeHtml` before wrapping, `IsSafeUrl` `https://` only, dangerous tags stripped). Render to **native `RichTextBox`** (not `WebView2`/`WebBrowser`) — lightest, `SystemColors` inherits Mica, no `Edge` runtime, offline cache works, `GetFontForRun` emoji fallback.
+
+*Do not use `WebView2` (150MB, separate `HWND`, `TopMost` issues, `Mica` break), not GitHub API (fails offline, RateLimited), not pure `Markdown→RTF` without HTML (violates “controlled HTML” requirement).*
+
+**Fixes vs current `HtmlRenderer.cpp`:** Heading size (currently only `Color` `313`, not `FontSize` 12/10.5/9.5 via `AppendHeading` never called) → add `SelectionFont Size 12pt Bold` for `inH1` (wire `AppendHeading` style inline). List indent `12px` via `SelectionIndent`, paragraph `\n\n` gap, `•` as `L'\u2022'` not literal `•`.
+
+---
+
+## 12. Emoji Strategy
+
+**Pipeline:** `GitHub API` UTF-8 `F0 9F 9A 80` → `ReadAsStringAsync` UTF-16 surrogate `0xD83D 0xDE80` → `GetJsonStringField` now `L'\\'` fix preserves pair → `EscapeHtml` preserves verbatim → `MarkdownToHtml` keeps raw `🚀` → `HtmlToRtf` `GetFontForRun 435-449` scans `IsHighSurrogate`+`IsLowSurrogate` `441-442` → `Font("Segoe UI Emoji", baseFont->Size, style)` per-run, else `Segoe UI` base. **Do not** substitute `:rocket:`.
+
+---
+
+## 13. Link Handling
+
+* **Inside release content:** `[text](https://example.com)` → `<a href="https://...">text</a>` → `HtmlToRtf 317-325` `Select + Font Underline + Color #0067B8`, `LinkClicked` (`UpdaterUI.cpp:82` `rtbNotes->LinkClicked+=OnNotesLinkClicked` → `OpenUrl(e->LinkText)` `UpdaterUI.cpp:154` allow-list `Scheme=="https" && Host=="github.com"` — broaden to `https://` any for release links, keep `http://` optional per task). Never `javascript:`/`data:`/`file:` → sanitized to `href="#"`.
+* **Outside preview:** `LinkLabel linkViewOnGithub` (`view 63A8F8` lighter blue for dark Mica, `UpdaterUI.cpp:84` `AutoSize Text="View on GitHub"` below `pnlPreview` `Dock Bottom`, `Tag=HtmlUrl`, `LinkClicked→OnViewOnGithubClick` → `Process::Start(psi UseShellExecute true)`). Color `Color::FromArgb(99,168,248)` `#63A8F8`.
+
+---
+
+## 14. Cache Strategy
+
+* **Preserve:** `UpdateState::GetCacheFilePath %APPDATA%\Windows Hello Fix\updater_cache.json` + `updater_etag.txt` via `GetCacheFilePath` `%APPDATA%`, `SaveCacheToDisk` atomic `tmp+Move`, `LoadCacheFromDisk` `File::ReadAllText` UTF-8, `TryDeserializeCacheJson` bridges `"tag"`→`"tag_name"`.
+* **Fix poisoned cache:** `UpdateState.cpp:230-239` already deletes file if `Body.Contains("92r92n")` (from old `92r` bug). After `L'\\'` fix, new cache will be correct `CRLF` (`0D 0A`).
+* **Offline:** `Updater::CheckThreadProc` → `FetchResult::NetworkError` → `SetStatus(Offline)` + `CacheUsed` banner if `LastCheckUtc <24h` else `Offline`; `HtmlRenderer::Render` on cached `Body` no network.
+
+---
+
+## 15. Mica/Translucency Strategy
+
+* **Cause:** Previous `BackColor White 330` hard + `FromArgb` literals + separate `HWND` `TopMost false` + `RichTextBox` opaque without `SystemColors`.
+* **Fix:** `UpdaterPopup: BackColor SystemColors::Window`, `ForeColor SystemColors::WindowText`, `DoubleBuffered true`, `Font Segoe UI 9`, no `TransparencyKey`/`Opacity`/`AllowTransparency`. `RichTextBox BackColor SystemColors::Window`, `SelectionBackColor = BackColor` (`HtmlRenderer.cpp:427,461`). `Panel pnlPreview` `BackColor Window`, `Border FixedSingle #E1E1E1`. No `WS_EX_LAYERED`/`UpdateLayeredWindow`; rely on `DwmExtendFrameIntoClientArea` inherited from owner via `EnableVisualStyles` (owner and popup share `SystemColors` + `DoubleBuffered`). Do not invent separate Mica `SetWindowAttribute` for updater — use same philosophy as `MyForm_Core.cpp:119-180` (default `Control`).
+* **Dark/light:** No independent dark-mode framework; `SystemColors::Window` for `rtbNotes`, `SystemColors::ControlText` for glyph, `SystemColors::HotTrack` for links `#0067B8` (light) / `#63A8F8` for `View on GitHub` on dark. No hard `White`/`Black`. Code `BackColor #F3F3F3` kept but blend with `SystemColors::ControlLight` if high-contrast.
+
+---
+
+## 16. Dark/Light Appearance Strategy
+
+* Investigated: `app.manifest:1-11` only `2.1.0.0` + `requireAdministrator`; `vcxproj:24` `4.7.2`; `MyForm_Core.cpp:119-180` no `BackColor`; `main.cpp:12` `EnableVisualStyles`. System `Control #F0F0F0` light, high-contrast via `SystemColors`.
+* **Renderer:** `SystemColors::Window` for `rtbNotes`, `SystemColors::ControlText` for glyph, `SystemColors::HotTrack` for links `#0067B8` (light) / `#63A8F8` for `View on GitHub` on dark. No hard `White`/`Black`. Code `BackColor #F3F3F3` kept but blend with `SystemColors::ControlLight` if high-contrast.
+* **Fix:** `SystemColors::Window` for `rtbNotes`, `SystemColors::ControlText` for glyph, `SystemColors::HotTrack` for links, `SystemColors::GrayText` for blockquote.
+
+---
+
+## 17. Security Strategy
+
+* `HtmlRenderer::SanitizeHtml 33-87` strips `script,iframe,object,embed,style,link,meta,base,form,input,button,svg,math,canvas` via `Regex "<{0}[^>]*>"`, `on\w+=` attributes, `href="javascript:..."` → `href="#"` via `IsSafeUrl` (`https://`/`http://` only). Markdown `EscapeHtml` before wrapping prevents raw `<script>` injection. `RichTextBox DetectUrls false` + `LinkClicked` allow-list prevents `data:`/`file:` execution. `UpdateInstaller` HTTPS allow-list unchanged.
+
+---
+
+## 18. Files That Need Modification
+
+```
+src/updater/HtmlRenderer.h/.cpp  — FIX: heading size (wire AppendHeading), list indent 12px, p gap \n\n, • as L'\u2022', sanitize already, emoji already
+src/updater/UpdaterUI.h          — REPLACE: add Panel pnlPreview, Label lblReleaseInfo/lblStatusInside, remove lblNotesHeader/pnlWarning(lblWarning)/lblStatus/lblStatusBanner separate, keep cmbRelease/btnUpdate/rtbNotes/linkViewOnGithub/progressBar
+src/updater/UpdaterUI.cpp        — MAJOR: InitializeComponentPopup re-layout (cmb 68% + btn 30% same Y, pnlPreview Dock Fill with inside Release Info + status + rtbNotes, rtbNotes 336×~220 not 140, View on GitHub Dock Bottom inside preview, SystemColors.Window, DoubleBuffered, L'\u2022' for •, call HtmlRenderer::Render)
+src/updater/UpdateModels.cpp     — FIXED (L'\\' etc) + keep 92r cache delete in UpdateState.cpp:230-239
+src/updater/UpdateState.h/.cpp   — keep GetAllReleasesSorted (already), ensure RefreshStatus shows both Current+Latest Stable: "Current version: v2.1.0 - Latest Stable: v2.0.0"
+Windows_Hello_Fix_v2_0.vcxproj/.filters — if HtmlRenderer renamed, no change (already HtmlRenderer)
+docs/Plan.md                     — this Appendix (22 items)
+```
+
+---
+
+## 19. Files That Must Remain Untouched
+
+```text
+src/core/* (7 files: MyForm.h, MyForm_Camera.cpp, MyForm_Config.cpp, MyForm_Core.cpp, MyForm_Events.cpp, MyForm_System.cpp, MyForm_UI.cpp) — byte-for-byte, no WndProc/camera changes
+src/watchdog/* (4 files: CameraFailsafe.h/.cpp, RecoveryLoopFailsafe.h/.cpp) — byte-for-byte
+main.cpp (updater owned outside src/core already, no new core lines)
+x64/Release/install_script.nsi (rendering only, no Task Scheduler/installer change)
+app.manifest (optional <dpiAware> not required)
+```
+
+---
+
+## 20. Expected UI State Transitions
+
+* `Idle → Checking (5s startup or 6h periodic or manual ⟳) → pulseOn` → `UpToDate (lblStatus "✓ You are on latest: v2.1.0" green #107C10, no dot) ` vs `UpdateAvailable (lblStatus "⚠ Newer available: v2.2.0" yellow #986F0B, dot #D13438, btnUpdate "Update")` → `Downloading (progressBar 8px #0078D4, lblStatusBanner "Downloading 45%...")` → `Installing (lblStatusBanner "Installing...")` → `Environment::Exit(0)` → NSIS. `Offline/Error/RateLimited` → `lblStatusBanner #D13438` + cached `rtbNotes` still rendered. `Selected older` → `pnlWarning` inline yellow text `⚠ v1.0/v2.0 does not include updater` (text only, no `36px` panel) above rendered body, `btnUpdate` text `Downgrade` + `ConfirmDowngradeIfNeeded` dialog.
+
+---
+
+## 21. Test Plan
+
+| Area | Case | Expected |
+|---|---|---|
+| **Basic** | `v2.0` body (`🚀` `##`, lists `*`, `**`, `[]()`, `---`) | `MarkdownToHtml → HtmlToRtf` headings Bold 12/10.5/9.5, lists `•` `L'\u2022'`, no `92r` |
+| | `v2.1`/`v1.0` | same, `v1.0` warning text yellow |
+| | long (>200 lines) scroll, empty → “No release notes” | `rtbNotes 336×~220` vertical scroll, no horizontal overflow |
+| | malformed `**unclosed` → plain | no crash, `try/catch` fallback |
+| **Formatting** | `H1`/`H2`/`H3` distinct size/bold, `**bold**`/`*italic*`, `ul`/`ol`, `[link](https)` clickable, `` `code` `` `#F3F3F3` `Consolas`, ```` ``` ```` block `#F5F5F5`, `> blockquote` grey, `---` `─` | `SelectionFont/Color/BackColor` |
+| **Unicode** | `🚀` `U+1F680` surrogate, `✓`/`⚠`/`⟳`/`•`, quotes `“”`, non-ASCII | `Segoe UI Emoji` per-run, no `â` |
+| **Security** | `<script>alert(1)</script>`, `javascript:`, `data:`, `onload=` | stripped/escaped, not executed, links only `https` |
+| **UI** | `Release [ ▼ ]` 68% + `Update` 30% same row, `Release Info` inside preview, status `Current - Latest Stable` inside top, title `🚀` large, `View on GitHub` inside bottom (`#63A8F8`), Mica/Translucent `SystemColors.Window` blends | no separate panels |
+| **DPI** | 100/150/200% icon `20*scale` dot `6dp*scale` | `GetScaleFactor` `DpiX/96`, no `v` glyph |
+| **Offline** | cached `<24h` → rendered, `92r92n` old cache deleted | `CacheUsed` banner |
+
+---
+
+## 22. Rollback Plan
+
+* `git checkout HEAD -- src/updater/HtmlRenderer.* src/updater/UpdaterUI.* src/updater/UpdateModels.cpp src/updater/UpdateState.*` + `git checkout HEAD -- docs/Plan.md` + rebuild — `src/core` still zero. Or `MarkdownRenderer` fallback: if `HtmlRenderer::Render` throws, `rtb->Text = markdown` plain + `File::Delete(updater_cache.json)`.
+
+# Appendix — Updater UI / Release Preview — Visual Reference Fixes (Issue #8) — PLAN ONLY
+
+> **Status: DRAFT — Planning Complete 2026-09-01 — Implementation Pending Review**
+> **Branch: `updater` (on top of HtmlRenderer Markdown→HTML)**
+> **Visual reference: Second image (desired) vs first image (current buggy updater right side, black texts, button oversize, box cropped)**
+> **Issue: https://github.com/Shivu516/Windows-Hello-Fix/issues/8**
+> **Core policy: `src/core/` ZERO changes — `src/watchdog/` ZERO changes**
+
+---
+
+## 1. Current UI Architecture
+
+`src/updater/UpdaterUI.h:46-87` / `UpdaterUI.cpp:58-150` — `UpdaterPopup : Form` `Size 360×440 FixedDialog SystemColors.Window DoubleBuffered` (`UpdaterUI.cpp:58-64`), `Font Segoe UI 9`. Top row: `Label "Release" 8pt #605E5C at (12,12) 60×21` + `ComboBox cmbRelease at (74,12) 200×21` (`65`) → `y+=28` → `Label lblStatus 336×16 9pt` (`72`) → `y+=18` → `Panel pnlWarning 336×36 #FFF8E1` (`74-76`) → `y+=40` → `Button btnUpdate at (12,y) 110×28` (`77`) left-aligned full-width → `y+=34` → `Label lblNotesHeader "Release notes" 8pt Bold #605E5C` (`79`) → `Panel separator 1px #E1E1E1` (`81`) → `RichTextBox rtbNotes 336×140 ReadOnly Vertical SystemColors.Window` (`82`) → `LinkLabel linkViewOnGithub` (`84`) outside `rtbNotes` below separator. **Result:** 6 separate surfaces, 62px waste between dropdown and button.
+
+---
+
+## 2. Current Rendering Pipeline
+
+```
+GitHub API  GET /releases?per_page=20 (ETag)
+  → GitHubReleaseClient.cpp:136 ReadAsStringAsync  → UpdateModels::GetJsonStringField 140-175 (now L'\\' fixed) → UnescapeJsonString 73-101 → GitHubRelease.Body
+  → UpdateState::GetAllReleasesSorted 112-144 → cmbRelease
+  → UpdaterPopup::OnReleaseChanged → HtmlRenderer::Render(rtbNotes, markdown) (UpdaterUI.cpp:129)
+  → HtmlRenderer.cpp:89-245 MarkdownToHtml (normalize \r\n→\n, ```→<pre>, #→<h1>, hr→<hr>, >→<blockquote>, ul/ol→<li>, p→<p>, **→<strong> etc) → SanitizeHtml 33-87 (strip <script/on*/javascript:) → HtmlToRtf 263-399 (Regex <(/?)(\w+)> flags inStrong/inEm/inCode/inPre/inA/inBlockquote/inH1.. + AppendTextWithStyle Segoe UI 9 / Consolas 8.5 / Segoe UI Emoji per surrogate)
+  → RichTextBox rtbNotes 336×140 ReadOnly Vertical SystemColors.Window
+```
+
+---
+
+## 3. Exact Causes of Visual Artifacts
+
+* **Fragmented panels:** Current has `lblStatus` + `lblStatusBanner` + `lblNotesHeader` + `separator` + `rtbNotes` + `linkViewOnGithub` outside → 6 surfaces. Desired single `Panel pnlPreview` with `Release Info` inside.
+* **Top row split:** `cmbRelease Y=pad` then `y+=28` then `lblStatus` then `pnlWarning` then `btnUpdate Y+=74` → 62px waste. Desired needs `cmbRelease 228×21 (68%)` + `btnUpdate 100×21 (30%)` same `Y=12`.
+* **Header outside preview:** `lblNotesHeader "Release notes"` separate not inside `rtbNotes`; screenshot's `Release Info` inside preview.
+* **Status outside preview:** `lblStatus` shows only one side. Desired shows both `Current version: v2.1.0 - Latest Stable: v2.0.0` inside preview near top.
+* **Warning giant panel:** `pnlWarning 336×36 #FFF8E1` is 8.5% height — desired no giant panel, inline yellow text.
+* **Heading size:** `HtmlToRtf 313` only `Color #1A1A1A` for `inH1`, not `FontSize 12pt Bold`. `AppendHeading` never called from `HtmlToRtf`.
+* **Spacing:** `HtmlToRtf` emits single `\n` for `p/li/h1` → no readable gap; `•` as `L'\u2022'` vs `*` fallback.
+* **Link outside vs inside:** `linkViewOnGithub` outside `rtbNotes` below separator; screenshot puts `[View on GitHub]` inside preview bottom.
+
+---
+
+## 4. Exact Cause of Unicode Corruption
+
+* **Primary `92r92n`:** `UpdateModels.cpp:158-164` `sb->Append('\\')` with narrow `char 92` → `Append(int32)` → decimal `"92"`; `\r\n` → `"92r92n"` (`39 32 72 39 32 6E`) in `%APPDATA%\updater_cache.json`. **Fixed** to `L'\\'`.
+* **Remaining `â€¢`:** Bullet `• U+2022` (`E2 80 A2` UTF-8) inside `HtmlRenderer.cpp` source file: if file saved as UTF-8 without BOM, `CL.exe /clr` may interpret `•` as ANSI `windows-1252` `â€¢`. Current `HtmlRenderer.cpp:347` `AppendText("  • ")` contains literal `•`. Fix: `L'\u2022'` or `"\u2022"` string, save file as UTF-8 BOM.
+
+---
+
+## 5. Current Updater Icon Implementation
+
+**Already fixed** (`UpdaterUI.cpp:39-50`): `Panel 20×20*scale`, `GetScaleFactor()` via `CreateGraphics()->DpiX/96`, `OnIconPaint` vector GDI path (`Pen 1.5*scale`, Tray `Rect 4,14,12,2` + Stem `10,4→10,14` + Head triangle `6,12-14,12-10,18`, `FillPolygon`), `SmoothingMode AntiAlias`, `SystemDefault` hint, `SystemColors.ControlText` / `#005A9E` when `hasUpdate`, dot `6dp*scale #D13438` white `1*scale` border at `W-dot-1,1`. No `glyph="v"`, no `Segoe MDL2` font dependency, DPI-scaled, `Transparent` → `SystemColors.Control` with `DoubleBuffered`. **Preserve as-is.**
+
+---
+
+## 6. Target UI Derived from Supplied Image
+
+**Proportions (360×~480, dark Mica, compact):**
+
+```
+┌──────────────────────────────┐  UpdaterPopup ClientSize 360×440 (Max 360×520) SystemColors.Window
+│ [v2.0.0        ▼] [ Update ] │  Top row pad 12: cmbRelease 228×21 (68% of 336-8) at (12,12) | btnUpdate 100×21 (30%) at (248,12) same Y=12, Height 23
+│ ┌──────────────────────────┐ │  Panel pnlPreview Location(12,40) ClientSize 336×300 (right 348 → now ClientSize 360 → 348 inside), BackColor SystemColors.Window, Border FixedSingle #E1E1E1, Padding 8, Dock Fill between top row and bottom link
+│ │ Release Info             │ │  Label lblReleaseInfo Dock Top 20 Bold 11pt Bold White (dark) / #1A1A1A (light) inside preview
+│ │ Current version: v2.1.0  │ │  Label lblStatusInside Dock Top 16 9pt #107C10 (up-to-date) / #986F0B (outdated) inside preview
+│ │ - Latest Stable: v2.0.0  │ │  (single line, both values)
+│ │ ! v2.0.0 does not ...    │ │  Label lblWarningInline Dock Top 28 8pt #986F0B Visible iff !HasUpdaterSupport, text only
+│ │ 🚀 Version 2.0 - …       │ │  RichTextBox rtbNotes Dock Fill, 320×~180, ReadOnly Vertical SystemColors.Window, HtmlRenderer (h1 14pt Bold White/Black, p 9pt, ul • 12px indent, code Consolas 8.5, blockquote grey)
+│ │ This major update is…    │ │
+│ │ • Re-written core…       │ │
+│ │ [View on GitHub]         │ │  LinkLabel Dock Bottom outside preview? Per task outside = below pnlPreview at (12,350) #63A8F8 (lighter blue for dark)
+│ └──────────────────────────┘ │
+└──────────────────────────────┘
+```
+
+*No channel selector, no repository preview, no giant warning panels.*
+
+---
+
+## 7. Release Dropdown Design
+
+**Control:** `ComboBox cmbRelease DropDownList Segoe UI 9` `Location (12,12) Size 228×21` (68% of `336` inner), `FlatStyle` default. **Items:** `tag` only (`v2.1.0`, `v2.0.0`, `v1.0.0`…), sorted descending `Version.CompareTo` via `UpdateState::GetAllReleasesSorted()` (no channel filter), newest first, installed `✓` suffix (`tag + " ✓ installed"` if `CompareTo==0`). Default `SelectedIndex` preserves `prevTag` else `LatestForChannel` else `0`.
+
+---
+
+## 8. Update Button Placement
+
+**Beside dropdown:** `Button btnUpdate Location = Point(cmbRelease.Right + 8, 12) Size 100×21` (30% width, same `Y`, height matches `ComboBox` 21, not 28). `UseVisualStyleBackColor true`, `FlatStyle Standard`. **Text dynamic:** `hasAsset` else `"No installer"`; `CompareTo` `<0→"Downgrade"`, `==0→"Reinstall"`, `>0→"Update"` (`UpdateButtonStates 131-139`). Shared top row `y=12` saves 62px.
+
+---
+
+## 9. Release Info Placement
+
+**Inside preview:** No separate `lblNotesHeader` outside. Create `Panel pnlPreview Dock Fill` (fills between top row and bottom). Inside `pnlPreview`:
+
+* `Label lblReleaseInfo Dock Top Height 22 Text "Release Info" Font Segoe UI 11 Bold ForeColor White/#1A1A1A` (adaptive, Bold White in dark)
+* `Label lblStatusInside Dock Top Height 16 Font 9` `String::Format("Current version: {0} - Latest Stable: {1}", cur, latest?.Tag)` `ForeColor Green #107C10` or Yellow `#986F0B` (text only, no background)
+* `RichTextBox rtbNotes Dock Fill` below them, `Margin 0`.
+
+This makes status scroll with preview? Keep status outside scroll for always-visible: `pnlPreview.Controls.Add(lblReleaseInfo); Add(lblStatusInside); Add(rtbNotes)` with `rtbNotes Dock Fill` below two docked-tops → status stays top of preview, notes scroll.
+
+---
+
+## 10. HTML/Markdown Rendering Options
+
+| Option | Fidelity | Emoji | Security | Mica | Deploy | Startup |
+|---|---|---|---|---|---|---|
+| **A. Markdown→RTF** (current `MarkdownRenderer` direct) | Good for subset | `Segoe UI Emoji` per-run | Strong (no HTML) | `SystemColors` inherits | 0 | 0ms |
+| **B. Markdown→controlled HTML→RichTextBox** (chosen `HtmlRenderer` `MarkdownToHtml→Sanitize→HtmlToRtf`) | Same, plus HTML sanitization layer | Same | Controlled allow-list `h1/p/strong/em/code/pre/ul/ol/li/a/blockquote/hr/br` + strip `script/on*` + `href https` only | Same `SystemColors` | 0 | ~5ms |
+| **C. WebView2** | Perfect | Perfect | Sandbox but `javascript:` via API, need CSP | GPU `HWND` opaque breaks Mica, extra process | 150MB runtime | 500ms |
+| **D. GitHub Markdown API** | Perfect | Perfect via GitHub | GitHub sanitizes | Same HTML | Needs `Edge` | Fails offline (60/h) |
+| **E. WebBrowser Trident** | IE7 quirks | Poor emoji | Worst (`ActiveX`) | Deprecated | Regkey elevation | 200ms |
+
+---
+
+## 11. Selected Rendering Strategy
+
+**Keep `HtmlRenderer` pipeline: `Markdown → controlled HTML → RichTextBox` (`HtmlRenderer.h:9` `Render` = `MarkdownToHtml 89-245` + `SanitizeHtml 33-87` + `HtmlToRtf 263-399`).** This satisfies prompt “Markdown → controlled HTML → updater HTML renderer/control” with **controlled HTML** (allow-list `h1/h2/h3, p, strong/em, code/pre, ul/ol/li, a, blockquote, hr, br` + `EscapeHtml` before wrapping, `IsSafeUrl` `https://` only, dangerous tags stripped). Render to **native `RichTextBox`** (not `WebView2`/`WebBrowser`) — lightest, `SystemColors` inherits Mica, no `Edge` runtime, offline cache works, `GetFontForRun` emoji fallback.
+
+**Fixes vs current `HtmlRenderer.cpp`:** Heading size (currently only `Color` `313`, not `FontSize` 12/10.5/9.5 via `AppendHeading` never called) → add `SelectionFont Size 12pt Bold` for `inH1` (wire `AppendHeading` style inline). List indent `12px` via `SelectionIndent`, paragraph `\n\n` gap, `•` as `L'\u2022'` not literal `•`.
+
+---
+
+## 12. Emoji Strategy
+
+**Pipeline:** `GitHub API` UTF-8 `F0 9F 9A 80` → `ReadAsStringAsync` UTF-16 surrogate `0xD83D 0xDE80` → `GetJsonStringField` now `L'\\'` fix preserves pair → `EscapeHtml` preserves verbatim → `MarkdownToHtml` keeps raw `🚀` → `HtmlToRtf` `GetFontForRun 435-449` scans `IsHighSurrogate`+`IsLowSurrogate` `441-442` → `Font("Segoe UI Emoji", size)` per-run, else `Segoe UI` base. **Do not** substitute `:rocket:`.
+
+**Full color:** `RichTextBox` GDI cannot render `COLR/CPAL` color (requires `DirectWrite`/`WebView2`). For “full color” per last prompt, keep `Segoe UI Emoji` fallback (monochrome but visible) and document tradeoff vs `WebView2` 150MB. Make `Release Info` colorful text via `HtmlRenderer` heading color adaptive (not emoji).
+
+---
+
+## 13. Link Handling
+
+* **Inside release content:** `[text](https://example.com)` → `<a href="https://...">text</a>` → `HtmlToRtf 317-325` `Select + Font Underline + Color #0067B8`, `LinkClicked` (`UpdaterUI.cpp:82` `rtbNotes->LinkClicked+=OnNotesLinkClicked` → `OpenUrl(e->LinkText)` `UpdaterUI.cpp:154` allow-list `Scheme=="https" && Host=="github.com"` — broaden to `https://` any for release links, keep `http://` optional per task). Never `javascript:`/`data:`/`file:` → sanitized to `href="#"`.
+* **Outside preview:** `LinkLabel linkViewOnGithub` (`view 63A8F8` lighter blue for dark Mica, `UpdaterUI.cpp:84` `AutoSize Text="View on GitHub"` below `pnlPreview` `Dock Bottom`, `Tag=HtmlUrl`, `LinkClicked→OnViewOnGithubClick` → `Process::Start(psi UseShellExecute true)`). Color `Color::FromArgb(99,168,248)` `#63A8F8`.
+
+---
+
+## 14. Cache Strategy
+
+* **Preserve:** `UpdateState::GetCacheFilePath %APPDATA%\Windows Hello Fix\updater_cache.json` + `updater_etag.txt` via `GetCacheFilePath` `%APPDATA%`, `SaveCacheToDisk` atomic `tmp+Move`, `LoadCacheFromDisk` `File::ReadAllText` UTF-8, `TryDeserializeCacheJson` bridges `"tag"`→`"tag_name"`.
+* **Fix poisoned cache:** `UpdateState.cpp:230-239` already deletes file if `Body.Contains("92r92n")` (from old `92r` bug). After `L'\\'` fix, new cache will be correct `CRLF` (`0D 0A`).
+* **Offline:** `Updater::CheckThreadProc` → `FetchResult::NetworkError` → `SetStatus(Offline)` + `CacheUsed` banner if `LastCheckUtc <24h` else `Offline`; `HtmlRenderer::Render` on cached `Body` no network.
+
+---
+
+## 15. Mica/Translucency Strategy
+
+* **Cause:** Previous `BackColor White 330` hard + `FromArgb` literals + separate `HWND` `TopMost false` + `RichTextBox` opaque without `SystemColors`.
+* **Fix:** `UpdaterPopup: BackColor SystemColors::Window`, `ForeColor SystemColors::WindowText`, `DoubleBuffered true`, `Font Segoe UI 9`, no `TransparencyKey`/`Opacity`/`AllowTransparency`. `RichTextBox BackColor SystemColors::Window`, `SelectionBackColor = BackColor` (`HtmlRenderer.cpp:427,461`). `Panel pnlPreview` `BackColor Window`, `Border FixedSingle #E1E1E1`. No `WS_EX_LAYERED`/`UpdateLayeredWindow`; rely on `DwmExtendFrameIntoClientArea` inherited from owner via `EnableVisualStyles` (owner and popup share `SystemColors` + `DoubleBuffered`). Do not invent separate Mica `SetWindowAttribute` for updater — use same philosophy as `MyForm_Core.cpp:119-180` (default `Control`).
+
+---
+
+## 16. Dark/Light Appearance Strategy
+
+* Investigated: `app.manifest:1-11` only `2.1.0.0` + `requireAdministrator`; `vcxproj:24` `4.7.2`; `MyForm_Core.cpp:119-180` no `BackColor`; `main.cpp:12` `EnableVisualStyles`. System `Control #F0F0F0` light, high-contrast via `SystemColors`.
+* **Renderer:** `SystemColors::Window` for `rtbNotes`, `SystemColors::ControlText` for glyph, `SystemColors::HotTrack` for links `#0067B8` (light) / `#63A8F8` for `View on GitHub` on dark. No hard `White`/`Black`. Code `BackColor #F3F3F3` kept but blend with `SystemColors::ControlLight` if high-contrast.
+* **Fix:** `SystemColors::Window` for `rtbNotes`, `SystemColors::ControlText` for glyph, `SystemColors::HotTrack` for links, `SystemColors::GrayText` for blockquote. Black texts `Release Info` etc should be **Bold White in dark mode**: detect `isDark = GetSysColor(COLOR_WINDOW) luminance <128 || ShouldAppsUseDarkMode (uxtheme 138)` → `lblReleaseInfo ForeColor = isDark ? White : #1A1A1A` Bold, `inH1` color same.
+
+---
+
+## 17. Security Strategy
+
+* `HtmlRenderer::SanitizeHtml 33-87` strips `script,iframe,object,embed,style,link,meta,base,form,input,button,svg,math,canvas` via `Regex "<{0}[^>]*>"`, `on\w+=` attributes, `href="javascript:..."` → `href="#"` via `IsSafeUrl` (`https://`/`http://` only). Markdown `EscapeHtml` before wrapping prevents raw `<script>` injection. `RichTextBox DetectUrls false` + `LinkClicked` allow-list prevents `data:`/`file:` execution. `UpdateInstaller` HTTPS allow-list unchanged.
+
+---
+
+## 18. Files That Need Modification
+
+```
+src/updater/HtmlRenderer.h/.cpp  — FIX: heading size (wire AppendHeading), list indent 12px, p gap \n\n, • as L'\u2022', sanitize already, emoji already
+src/updater/UpdaterUI.h          — REPLACE: add Panel pnlPreview, Label lblReleaseInfo/lblStatusInside/lblWarningInline (text only), keep cmbRelease/btnUpdate/rtbNotes/linkViewOnGithub/progressBar
+src/updater/UpdaterUI.cpp        — MAJOR: InitializeComponentPopup re-layout (cmb 68% + btn 30% same Y, pnlPreview Dock Fill with inside Release Info + status + rtbNotes, rtbNotes 336×~220 not 140, View on GitHub Dock Bottom inside preview, SystemColors.Window, DoubleBuffered, L'\u2022' fix, call HtmlRenderer::Render)
+src/updater/UpdateModels.cpp     — FIXED (L'\\' etc) + keep 92r cache delete in UpdateState.cpp:230-239
+src/updater/UpdateState.h/.cpp   — keep GetAllReleasesSorted (already), ensure RefreshStatus shows both Current+Latest Stable: "Current version: v2.1.0 - Latest Stable: v2.0.0"
+Windows_Hello_Fix_v2_0.vcxproj/.filters — if HtmlRenderer renamed, no change (already HtmlRenderer)
+docs/Plan.md                     — this Appendix (22 items)
+```
+
+---
+
+## 19. Files That Must Remain Untouched
+
+```text
+src/core/* (7 files: MyForm.h, MyForm_Camera.cpp, MyForm_Config.cpp, MyForm_Core.cpp, MyForm_Events.cpp, MyForm_System.cpp, MyForm_UI.cpp) — byte-for-byte, no WndProc/camera changes
+src/watchdog/* (4 files: CameraFailsafe.h/.cpp, RecoveryLoopFailsafe.h/.cpp) — byte-for-byte
+main.cpp (updater owned outside src/core already, no new core lines)
+x64/Release/install_script.nsi (rendering only, no Task Scheduler/installer change)
+app.manifest (optional <dpiAware> not required)
+```
+
+---
+
+## 20. Expected UI State Transitions
+
+* `Idle → Checking (5s startup or 6h periodic or manual ⟳) → pulseOn` → `UpToDate (lblStatusInside "✓ You are on latest: v2.1.0" green #107C10, no dot) ` vs `UpdateAvailable (lblStatusInside "⚠ Newer available: v2.2.0" yellow #986F0B, dot #D13438, btnUpdate "Update")` → `Downloading (progressBar 8px #0078D4, lblWarningInline "Downloading 45%...")` → `Installing (lblWarningInline "Installing...")` → `Environment::Exit(0)` → NSIS. `Offline/Error/RateLimited` → `lblWarningInline #D13438` + cached `rtbNotes` still rendered. `Selected older` → `lblWarningInline` inline yellow text `⚠ v1.0/v2.0 does not include updater` (text only, no `36px` panel) above rendered body, `btnUpdate` text `Downgrade` + `ConfirmDowngradeIfNeeded` dialog.
+
+---
+
+## 21. Test Plan
+
+| Area | Case | Expected |
+|---|---|---|
+| **Basic** | `v2.0` body (`🚀` `##`, lists `*`, `**`, `[]()`, `---`) | `MarkdownToHtml → HtmlToRtf` headings Bold 12/10.5/9.5, lists `•` `L'\u2022'`, no `92r` |
+| | `v2.1`/`v1.0` | same, `v1.0` warning text yellow |
+| | long (>200 lines) scroll, empty → “No release notes” | `rtbNotes 336×~220` vertical scroll, no horizontal overflow |
+| | malformed `**unclosed` → plain | no crash, `try/catch` fallback |
+| **Formatting** | `H1`/`H2`/`H3` distinct size/bold, `**bold**`/`*italic*`, `ul`/`ol`, `[link](https)` clickable, `` `code` `` `#F3F3F3` `Consolas`, ```` ``` ```` block `#F5F5F5`, `> blockquote` grey, `---` `─` | `SelectionFont/Color/BackColor` |
+| **Unicode** | `🚀` `U+1F680` surrogate, `✓`/`⚠`/`⟳`/`•`, quotes `“”`, non-ASCII | `Segoe UI Emoji` per-run, no `â` |
+| **Security** | `<script>alert(1)</script>`, `javascript:`, `data:`, `onload=` | stripped/escaped, not executed, links only `https` |
+| **UI** | `Release [ ▼ ]` 68% + `Update` 30% same row, `Release Info` inside preview, status `Current - Latest Stable` inside top, title `🚀` large, `View on GitHub` inside bottom (`#63A8F8`), Mica/Translucent `SystemColors.Window` blends | no separate panels |
+| **DPI** | 100/150/200% icon `20*scale` dot `6dp*scale` | `GetScaleFactor` `DpiX/96`, no `v` glyph |
+| **Offline** | cached `<24h` → rendered, `92r92n` old cache deleted | `CacheUsed` banner |
+
+---
+
+## 22. Rollback Plan
+
+* `git checkout HEAD -- src/updater/HtmlRenderer.* src/updater/UpdaterUI.* src/updater/UpdateModels.cpp src/updater/UpdateState.*` + `git checkout HEAD -- docs/Plan.md` + rebuild — `src/core` still zero. Or `MarkdownRenderer` fallback: if `HtmlRenderer::Render` throws, `rtb->Text = markdown` plain + `File::Delete(updater_cache.json)`.
+
 
