@@ -109,6 +109,40 @@ namespace Updater {
         return GetReleasesForChannel(SelectedChannel);
     }
 
+    List<GitHubRelease^>^ UpdateState::GetAllReleasesSorted()
+    {
+        System::Threading::Monitor::Enter(syncRoot);
+        try {
+            List<GitHubRelease^>^ filtered = gcnew List<GitHubRelease^>();
+            if (cachedReleases != nullptr) {
+                for each (GitHubRelease^ r in cachedReleases) {
+                    if (r == nullptr || r->IsDraft) continue;
+                    filtered->Add(r);
+                }
+                for (int i = 0; i < filtered->Count; i++) {
+                    for (int j = i + 1; j < filtered->Count; j++) {
+                        GitHubRelease^ a = filtered[i];
+                        GitHubRelease^ b = filtered[j];
+                        int cmp = 0;
+                        if (a == nullptr && b == nullptr) cmp = 0;
+                        else if (a == nullptr) cmp = 1;
+                        else if (b == nullptr) cmp = -1;
+                        else if (a->Version == nullptr && b->Version == nullptr) cmp = 0;
+                        else if (a->Version == nullptr) cmp = 1;
+                        else if (b->Version == nullptr) cmp = -1;
+                        else cmp = b->Version->CompareTo(a->Version);
+                        if (cmp > 0) {
+                            GitHubRelease^ tmp = filtered[i];
+                            filtered[i] = filtered[j];
+                            filtered[j] = tmp;
+                        }
+                    }
+                }
+            }
+            return filtered;
+        } finally { System::Threading::Monitor::Exit(syncRoot); }
+    }
+
     List<GitHubRelease^>^ UpdateState::GetReleasesForChannel(UpdateChannel channel)
     {
         System::Threading::Monitor::Enter(syncRoot);

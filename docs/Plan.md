@@ -1663,3 +1663,468 @@ schtasks /Delete /TN "WindowsHelloFix_Unlock" /F
 ---
 
 # End of Plan — Implementation to follow (no src/core changes)
+
+# Appendix — Updater UI Rework (Issue #8) — PLANNING ONLY
+
+> **Status: DRAFT — Planning Complete 2026-09-01 — Implementation Pending Review**
+> **Branch: `updater` (on top of 6eaa16e Add in-app Updater)**
+> **Plan date: 2026-09-01**
+> **Issue: https://github.com/Shivu516/Windows-Hello-Fix/issues/8 — “Updater is buggy af”**
+> **Core policy: `src/core/` ZERO changes — `src/watchdog/` ZERO changes — `src/updater/` + `main.cpp` only**
+
+## 0. Investigation Scope — What Was Inspected
+
+**Files read (absolute, verified 2026-09-01):**
+- `AGENTS.md:1-180`, `docs/Plan.md` (122436 bytes prior), `docs/ARCHITECTURE.md`, `docs/SOURCE_TREE.md`
+- `src/updater/UpdateModels.h:1-67` / `UpdateModels.cpp:1-450` (hand-rolled JSON, `GetJsonStringField 140-175`, `UnescapeJsonString 73-101`, `\u` BMP only)
+- `src/updater/UpdaterUI.h:1-122` / `UpdaterUI.cpp:1-957` (icon 172-244, popup 303-506, `ShowPopup 261-290`)
+- `src/updater/Updater.h:1-135` / `Updater.cpp:1-477` (Arm 95-110, CheckThreadProc 176-196)
+- `src/updater/UpdateState.h:1-92` / `UpdateState.cpp:1-280` (`RecalculateLatest 59-85`, `IsUpdateAvailable 87-93`)
+- `src/updater/UpdateVersion.h:1-63`, `UpdateChannel.h:1-122`, `UpdateInstaller.h:1-56`
+- `main.cpp:1-82` (`runHidden 28-34`, `isCommandWorker 38-49`, `Updater Arm 62-73`)
+- `src/core/MyForm_Core.cpp:119-180` (`deviceDrop 136-141`, `btnToggle 144-149`, `lblStatus 158-161 Gray`, `ClientSize 430x240 164`, `FixedDialog 169`)
+- `app.manifest:1-11` (no `<dpiAware>`), `Windows_Hello_Fix_v2_0.vcxproj:24,27` (`TargetFramework v4.7.2`, `WindowsTarget 10.0`), `x64/Release/install_script.nsi:1-268`
+- GitHub API `GET /repos/Shivu516/Windows-Hello-Fix/releases?per_page=20` (verified: `v2.0.0` + `v1.0.0`, asset `Windows_Hello_Fix_Setup.exe`)
+
+**Concept image** from Issue #8: small bottom-right download icon + red dot → click → minimal flyout (`Release [ ▼ ]`, status, `[ Update ]`, notes).
+
+---
+
+## 1. Current Updater UI Architecture
+
+**Ownership:**
+```
+Updater (Updater.h:12) — state (UpdateState 16), client (GitHubReleaseClient 17), UI (UpdaterUI 18), timers (periodic 6h, startup 5s), CancellationTokenSource pair, stagedInstallerPath
+  │  Arm() 95-110 → EnsureUiCreated() → UpdaterUI::InstallIcon() 75-92 + ApplyTitleFix() + CleanupOldStaging + startupDelayTimer->Start 5s
+  │  CheckAsync(false) 176-215 → isChecking=true → SetStatus(Checking) → Thread(CheckThreadProc 176-196) → client->FetchReleases(Etag, token 15s) → pendingFetchResult → BeginInvoke(Marshaled) → DoCheckAsync_ContinueOnUi 225-291
+  └─► UpdaterUI (UpdaterUI.h:11) — Panel iconPanel 24×24 Transparent 22-23, ToolTip, pulseTimer 500ms, UpdaterPopup* popup
+        ComputeIconLocation 54-65: x=W-28, y=192 (aligns to MyForm_Core.cpp:160 lblStatus 25,195)
+        InstallIcon 75-92: Controls->Add(iconPanel) + Resize+=OnOwnerResize
+        OnIconPaint 172-244: SmoothingMode AntiAlias, glyph="v" Segoe UI 10, dot 7px
+        ShowPopup 261-290: owned Form 380×460 FixedDialog White, Show(ownerForm) + BringToFront, x=owner.X+W-W-10 clamped to WorkingArea
+        UpdaterPopup : Form (303-506) — pad 12, lblHeader Bold 10, lblVersionLine #605E5C, lblChannelLine #787878, lblStatusBanner, lblNotes 340×60, progressBar, btnUpdate/btnDetails, comboChannel Stable/Beta/Pre-Release, linkCheckNow ⟳, linkBrowse ▸/▾, browsePanel 340×150 FixedSingle {listReleases, lblReleaseDetail, btnUpdateSelected/btnDownloadSelected}
+```
+
+**State flow:** `GitHubReleaseClient 32-136` (HttpClient 15s, If-None-Match) → `UpdateModels::ParseReleasesJson 311-337` hand-rolled → `UpdateState::RecalculateLatest 59-85` (filter IsIncludedBySelection, Version.CompareTo, HasInstallerAsset tie-break) → `Updater::SetStatus` → `UpdaterUI::OnStateChanged 156-170` (`RefreshIcon` + `popup RefreshForExternalChange`).
+
+---
+
+## 2. Current Icon Rendering Implementation
+
+**File `UpdaterUI.cpp:18-42` constructor + `172-244` paint:**
+
+- `iconPanel = gcnew Panel(); Size 24×24 22` (hard, no DPI), `BackColor Transparent 23` (WinForms fake-transparent = paints parent bitmap, not per-pixel alpha), `Cursor Hand 24`
+- `ComputeIconLocation 59-65` → `x=ClientSize.Width-28`, `y=192` hard-coded, clamped `62-63`; `InstallIcon 85` → `Controls->Add` + `Resize+=OnOwnerResize 87`
+- `OnIconPaint 177-178` `SmoothingMode AntiAlias`, `TextRenderingHint ClearTypeGridFit` (LCD assumption)
+- `glyphColor 188-192` hard `FromArgb(96,94,92) #605E5C` idle → `0,90,158 #005A9E` hasUpdate → `150,150,150` error → `180/120` pulse
+- `String^ glyph = "v" 193` — **lowercase Latin v**, `Font("Segoe UI",10) 201` `MeasureString` centered `203` `DrawString 205`. Not `Segoe MDL2 Assets \uE896` download. `Segoe UI` has no icon at `v`.
+- **Downloading:** `bgPen #DCDCDC 2px` ellipse `197` at `(2,2,W-4,H-4)`, `fgPen #0078D4 2px` `DrawArc(-90, pct*360) 200`, same `v` glyph.
+- **Installing:** `angle=TickCount%1000/1000*360 209` `DrawArc(angle,270) 210`.
+- **Error:** `Font 7pt Bold` `!` `#D13438` at `W-10,1 227` risks clipping.
+- **Dot:** `234-240` `if(hasUpdate 233)` `SolidBrush #D13438` + `Pen White 1px` `dotSize 7` at `W-8,1` (`16,1` on 24px) `FillEllipse+DrawEllipse`. Fixed 7px, not DPI-scaled.
+
+---
+
+## 3. Root Cause of Icon Artifacts
+
+**Primary:** `glyph="v"` with `Segoe UI 10` is a typo/mis-assumption. Task expects download arrow (e.g. `↓ U+2193` or `\uE896` in `Segoe MDL2 Assets`/`Segoe Fluent Icons`). `Segoe UI` does not contain download icon at `v`; rendered as literal letter “v” → described as “strange placeholder/symbol” in Issue #8. No font-existence check; fallback `MS Shell Dlg` still shows `v`. Transparent `Panel` is fake (paints parent bitmap, flickers on resize). Hard `24×24` not DPI-scaled; `MeasureString` off-center if font substituted. `ClearTypeGridFit` thin on high-DPI.
+
+**Secondary:** Hard `24×24` @96dpi + `W-28` not scaled via `DeviceDpi/96` → on 150%/200% bitmap-scaled by OS (manifest has **no `<dpiAware>`** `app.manifest:1-11`), dot 7 physical px vs 10.5 logical → tiny. `BackColor Transparent` fake causes flicker on parent `Invalidate` (pulse 500ms). `ClearTypeGridFit` thin on high-DPI.
+
+---
+
+## 4. Root Cause of Notification-Dot Failure
+
+**Logic:** `OnIconPaint 233 if(hasUpdate)` where `hasUpdate = Status==UpdateAvailable` (`UpdaterUI.cpp:182`) which is `UpdateState::IsUpdateAvailable() 87-93`: `latest!=null && installed!=null && latest.Version>installed` (requires `Version valid` + `HasInstallerAsset` tie-break `UpdateState.cpp:79-80`). If `Channel` filtering (e.g. `Stable` selected but latest is `Beta` prerelease) or `Version invalid` or `draft` or `no installer asset` → `IsUpdateAvailable==false` → dot hidden. Issue #8 reports dot “not appearing correctly” — matches channel UI confusion (Stable/Beta tabs) causing `IsIncludedBySelection` to hide `PreRelease` latest.
+
+**Paint:** `dotSize 7` `W-8` fixed, `Pen White 1px` → on `Control` grey parent (`MyForm` `Color::Control #F0F0F0` via DWM) white border aliases poorly; on 24px panel `W-8=16` → dot at `(16,1)` inside panel but `!` error overlay also at `W-10,1` → overlap if both shown. High-DPI bitmap scaling shrinks dot further.
+
+**Fix (policy):** Per §8, dot must mean only `selected/latest > installed` (currently does), but UI must stop using dot for `Offline/Error/RateLimited` — already correct (`isError` grey glyph, dot only `hasUpdate`). Simplified UI will compute dot from single `GetAllReleasesSorted` latest without channel gate.
+
+---
+
+## 5. Root Cause of Flyout Visual Artifacts
+
+**Form:** `UpdaterPopup::InitializeComponentPopup 317-332` → `FormBorderStyle FixedDialog 320`, `ShowInTaskbar false 323`, `ShowIcon false 324`, `TopMost false 325`, `StartPosition Manual 326`, `Size 380×460 Fixed 327-329`, `BackColor White 330` **hard-coded**, `Font Segoe UI 9 331`, no `TransparencyKey/Opacity/DoubleBuffered/AllowTransparency`, no `OnPaint` override.
+
+**Why white/inconsistent:** Main `MyForm` (`MyForm_Core.cpp:119-180`) uses default `BackColor Control` (system `#F0F0F0`, tinted by `DWM` + `Translucent Windows` tool via `DwmExtendFrameIntoClientArea`/`SetWindowCompositionAttribute`/`WS_EX_LAYERED` hook). `UpdaterPopup` hard `White #FFFFFF` ignores `SystemColors.Window` (`#FFFFFF`) vs `SystemColors.Control` and ignores DWM. Two separate `HWND`s → DWM treats popup as independent top-level with own non-client frame (standard `FixedDialog` caption, not Mica). Hard colors `FromArgb(96,94,92)/#605E5C` etc `UpdaterUI.cpp:188-578` (15×) ignore `SystemColors` high-contrast.
+
+**Why not blend:** `UpdateUI` does not call `DwmExtendFrameIntoClientArea` / `DwmSetWindowAttribute(DWMWA_USE_IMMERSIVE_DARK_MODE)` / `DWMSBT_MAINWINDOW` (Mica on 22000+). `Translucent Windows` hooks owner `HWND` but not popup `HWND` → popup opaque. `Panel Transparent` fake, `TopMost false` can be occluded by owner if owner `TopMost` toggled.
+
+---
+
+## 6. Dark / Mica / Translucent Compatibility Findings
+
+**Actual main window:** `app.manifest:1-11` only `assemblyIdentity 2.1.0.0` + `requireAdministrator` (**no `<dpiAware>`, no `<compatibility>`, no dark-mode nodes**). `Windows_Hello_Fix_v2_0.vcxproj:24,27` `TargetFramework v4.7.2`, `WindowsTarget 10.0`, `CLRSupport true` — DPI-unaware → Windows bitmap-scales on `>100%`. `MyForm_Core.cpp:119-180` sets **no** `BackColor/ForeColor/AutoScaleMode` → defaults `Control` back, `AutoScaleMode Font`. `main.cpp:12-13` `EnableVisualStyles()+SetCompatibleTextRenderingDefault(false)` → comctl32 v6 theming. **No `SystemColors`/`SystemBrushes` usage** (`grep 0` in `src/core/*`).
+
+**What is inherited:** System `Control` color, `Segoe UI` font, `CenterScreen`, `FixedDialog` frame — all drawn by `uxtheme` + DWM. `Translucent Windows` / Mica effect comes from **external tool/DWM**, not app code — tool hooks `SetWindowCompositionAttribute` (ACCENT_ENABLE_BLURBEHIND/ACRYLIC) on visible `HWND`s; owner `HWND` gets tint, popup `HWND` does not unless it also calls DWM APIs.
+
+**Why updater breaks it:** Hard `White 330` + hard `FromArgb` literals (`#605E5C` etc 15×) override system palette; opaque `Form` without `DwmExtendFrameIntoClientArea` does not participate in DWM backdrop.
+
+**Investigation gaps filled:** `grep -rn SystemColors|SystemBrushes` → 0 in `src/core/*`; `grep -rn dpiAware|PerMonitor` → 0; `docs/DEBUGGING.md`/`ARCHITECTURE.md` contain no theming notes.
+
+**Recommendation:** Use `SystemColors::Window`/`Control`/`ControlText`/`HotTrack` + `SystemFonts::DefaultFont` or `Segoe UI 9` via `SystemFonts`, not hard `White`/`#605E5C`. Set `DoubleBuffered true`, keep normal `Form`, optionally call `DwmSetWindowAttribute` for `DWMSBT_MAINWINDOW` if `IsWindows11OrGreater` (22000+) — but otherwise inherit gracefully. Document that true dark mode is not implemented; updater will follow system `Control` (light) and high-contrast via `SystemColors`.
+
+---
+
+## 7. Release-Data Source Findings
+
+**Correct source already:** `GitHubReleaseClient::FetchReleases` `GET /repos/Shivu516/Windows-Hello-Fix/releases?per_page=20&page=1` with `If-None-Match`/`If-Modified-Since`, `User-Agent WindowsHelloFix-Updater/1.0` (`GitHubReleaseClient.h:53-62`). Verified live 2026-09-01: `v2.0.0` + `v1.0.0`, asset `Windows_Hello_Fix_Setup.exe`.
+
+**Tags vs Releases:** `UpdateModels::ParseReleasesJson 311-337` parses **Releases** array (with `body` markdown). `GET /tags` never used — correct per §6. `FetchLatestRelease` `GET /releases/latest` exists but list already satisfies.
+
+**One-request sufficiency:** `/releases?per_page=20` returns for each release `tag_name`, `name`, `published_at`, `prerelease`, `draft`, `html_url`, `body`, `assets[] {name,browser_download_url,size,digest}` — all needed for simplified UI (`Release [ ▼ ]`, status, notes preview). No per-release extra call. Pagination later via `Link` header if `>20`.
+
+**Overengineering to remove:** `UpdateState::RecalculateLatest 59-85` channel filter (`IsIncludedBySelection` `Stable⊆Beta⊆PreRelease`) and UI `comboChannel` `UpdaterUI.cpp:419-427` + `browsePanel` `445-449` are unnecessary for single collection. Keep model `UpdateChannel` for future but **remove from UI**.
+
+---
+
+## 8. Current Markdown / Encoding Problem
+
+**Pipeline:** `GitHubReleaseClient.cpp:136` `ReadAsStringAsync()->Result` decodes UTF-8 → .NET `String` UTF-16. `UpdateModels::GetJsonStringField 140-175` collects escaped as `\"`+`c` then `UnescapeJsonString 73-101` handles `\n \r \t \" \\ \/ \uXXXX` (hex via `Int32::Parse` `91`). `\u` handler assumes BMP, **surrogate pairs `\uD83D\uDE80` become two isolates** (`wchar_t` each) — emoji may still render if font has pair but split. `EscapeForJson 103-117` preserves `>0x20` verbatim (emoji kept). `File::ReadAllText/WriteAllText` `UpdateState.cpp:189/233` use default UTF-8 (no `Encoding::UTF8` explicit) — BOM edge.
+
+**Render flattening:** `UpdaterPopup::RefreshHeader 532-535` `body->Replace("\r"," ")->Replace("\n"," ")` then `Substring(0,200)+"..." 534` or `180 638` into `Label` (`lblNotes 340×60`, `lblReleaseDetail 170×90`). `Label` single font, no rich.
+
+**Result:** Markdown syntax (`#`, `*`, `` ` ``, `-`, `[]()`) shown raw; line breaks lost; long notes truncated mid-word/mid-surrogate → half-surrogate → `�`/`â ë` malformed punctuation (issue description). Emoji `⟳ U+27F3`, `▸ U+25B8`, `✓ U+2713`, `⚠ U+26A0` plus body `🚀` `U+1F680` require `Segoe UI Emoji` fallback; `Label` `Segoe UI 9` lacks it → tofu.
+
+---
+
+## 9. Simplified Release Explorer Design
+
+**Remove:** `comboChannel` (Stable/Beta/Pre-Release), `linkBrowse Browse releases`, `browsePanel 340×150`, `listReleases` + `lblReleaseDetail` + `btnUpdateSelected/btnDownloadSelected` (5 controls). Keep model `Channel` but UI uses single collection.
+
+**Add:** One `ComboBox` `cmbRelease` (`DropDownList`, `Segoe UI 9`, `330×21` at `pad 12, y`) labeled `Release` (`Label 8pt #605E5C`). Items: `tag` strings only (`v2.1.0`, `v2.0.0`, `v1.0.0`…), sorted descending `UpdateVersion::CompareTo` via `UpdateState::GetAllReleasesSorted()` (new, no channel filter). Newest first, installed marked `✓` suffix. No preview cards, no asset URLs, no download counts in dropdown.
+
+**Data flow:** One `GET /releases?per_page=20` + `ETag` → `ParseReleasesJson` → `UpdateState::CachedReleases` → `GetAllReleasesSorted()` → `cmbRelease.Items` (bound once per `ReleasesUpdated`). Selection `SelectedIndexChanged` → `selectedRelease = list[SelectedIndex]` → `warningPanel.Visible = !selected->HasUpdaterSupport` + `MarkdownRenderer::Render(rtbNotes, selected->Body)`.
+
+---
+
+## 10. Exact Proposed UI Layout
+
+```
+┌──────────────────────────────┐  UpdaterPopup 360×420 (auto-expand to 360×520 if notes >140px)
+│ Updates                   X  │  ::FormBorderStyle FixedDialog, SystemColors.Window, DoubleBuffered true, ShowInTaskbar false, ShowIcon false, StartPosition Manual, Size 360×420 Fixed (Min==Max), Font Segoe UI 9
+│                              │  BackColor SystemColors.Window, ForeColor SystemColors.ControlText
+│ Release [ v2.1.0 ▼ ]         │  Row y=pad 12: Label "Release" 8pt #605E5C at (12,4) + ComboBox cmbRelease 110×21 at (60,0) DropDownList
+│                              │
+│ ✓ You are on latest: v2.1.0  │  lblStatus 9pt, AutoSize false 336×16, ForeColor Green #107C10 (up-to-date) or Yellow #986F0B (outdated) subtle, Location (12, y+28)
+│ ⚠ Newer available: v2.2.0    │
+│                              │
+│ ⚠ This version lacks updater │  pnlWarning 336×36, BackColor #FFF8E1, Border 1px #F2C200, Visible iff !IsUpdaterSupported (v1.0/v2.0), Label 8pt Wrap
+│   Manual update needed       │
+│                              │
+│ [ Update ]                   │  btnUpdate 110×30 UseVisualStyleBackColor, Text per selection: Update (>installed) / Reinstall (==) / Downgrade (<)
+│                              │
+│ Release notes                │  lblNotesHeader 8pt Bold #605E5C at (12, y), Panel separator 1px #E1E1E1
+│ ───────────────────────────  │
+│ [*RichTextBox rtbNotes*]     │  ReadOnly true, ScrollBars Vertical, BorderStyle FixedSingle, BackColor SystemColors.Window, Font Segoe UI 9, Size 336×140, WordWrap true, DetectUrls true, LinkClicked → Process::Start(https://github.com allow-list)
+│   # Heading                  │
+│   **bold** *italic* `code`   │
+│   - list •                  │
+│   > blockquote               │
+│   --- hr                     │
+│   [link](https://...)        │
+│   😀 emoji                   │
+└──────────────────────────────┘
+```
+
+* **No**: `lblChannelLine` download-count, `comboChannel`, `linkCheckNow ⟳`, `linkBrowse`, `browsePanel`, repository preview cards, repository metadata. Only `Release [ ▼ ]` selector.
+* **Popup positioning:** `ShowPopup 261-290` unchanged: `x=owner.X+W-W-10` clamped to `WorkingArea 10px` margin; `TopMost false` kept (owned popup stays above owner via `Show(ownerForm)`), no `TransparencyKey`.
+
+---
+
+## 11. Exact Proposed Icon Implementation
+
+**Control:** Keep `Panel^ iconPanel` but fix paint. Alternative considered: `PictureBox` with bundled `ICO`/`PNG` resource (e.g. `IDI_DOWNLOAD` 16×16 @96dpi + 32×32 @192dpi) — would require `*.rc` + `LoadImage` + DPI-aware scaling, more files. Preferred: **small owner-drawn GDI vector** (no resource, DPI-scalable, theme-aware).
+
+**Size:** `iconPanel->Size = Drawing::Size(20,20)` at `96dpi` base, scaled at runtime via `GetDpiForWindow(ownerForm->Handle)` / `CreateGraphics()->DpiX` → `scale = dpi/96.0f`, `size = Round(20*scale)`, `location = Point(W - Round(28*scale), Round(192*scale))` (aligns to `lblStatus`).
+
+**Paint (`OnIconPaint` 172-244 reworked):**
+
+- `SmoothingMode AntiAlias`, `TextRenderingHint SystemDefault` (not `ClearTypeGridFit`) — better for Remote Desktop.
+- `System::Drawing::Rectangle rect = p->ClientRectangle;` (fully qualified, `#undef Rectangle` already in `UpdaterUI.cpp:1-10`)
+- `glyphColor = SystemColors::ControlText` if not `hasUpdate` else `Color::FromArgb(0,90,158) #005A9E` (blue) — or `SystemColors::HotTrack` for theme.
+- **Vector download arrow:** `GraphicsPath^ path = gcnew GraphicsPath(); path->AddLine(...); AddPolygon(arrow head);` with `Pen 1.5*scale` + `SolidBrush` — not `DrawString "v"`. Coordinates in `0..20` space scaled.
+  ```
+  // Tray: rect 4,14,12,2  + stem 8,4,4,10 + head triangle (6,14)-(14,14)-(10,18)
+  Pen^ pen = gcnew Pen(glyphColor, 1.5f*scale); pen->LineJoin = LineJoin::Round;
+  g->DrawRectangle(pen, RectangleF(4*scale,14*scale,12*scale,2*scale));
+  g->DrawLine(pen, 10*scale,4*scale, 10*scale,14*scale);
+  PointF pts[] = {PointF(6*scale,12*scale), PointF(14*scale,12*scale), PointF(10*scale,18*scale)};
+  g->FillPolygon(gcnew SolidBrush(glyphColor), pts);
+  ```
+  Uses `Color` not font, so no `Segoe UI`/`MDL2` dependency.
+
+- **BackColor:** `iconPanel->BackColor = Color::Transparent` replaced with `Color::Transparent` still but parent is `SystemColors::Control` — keep, but ensure `SetStyle(ControlStyles::SupportsTransparentBackColor,true)` and `DoubleBuffered`.
+
+**Why this method:** Simplest consistent across light/dark/Mica/DPI, no bundled resource, no `Segoe MDL2 Assets` availability check (`\uE896` requires `Segoe Fluent Icons` on Win11, fallback to `Segoe MDL2 Assets` on Win10, still font-dependent). Vector GDI path is font-agnostic and scales linearly.
+
+---
+
+## 12. Exact Proposed Notification-Dot Implementation
+
+**Policy:** Dot visible **iff** `selectedOrLatestVersion > installedVersion` (via `UpdateVersion::CompareTo` `>0`). Not for `Offline/Error/Malformed/RateLimited` — already correct (`OnIconPaint 182-185` `isError` grey, dot only `hasUpdate`).
+
+**Paint:** After vector arrow, `if(hasUpdate)`:
+
+```
+float dotDp = 6.0f * scale; // 6dp @96dpi → 9px @144dpi, 12px @192dpi
+float dotX = rect.Width - dotDp - 1*scale;
+float dotY = 1*scale;
+SolidBrush^ dotBr = gcnew SolidBrush(Color::FromArgb(209,52,56) #D13438);
+Pen^ dotPen = gcnew Pen(Color::White, 1*scale);
+g->FillEllipse(dotBr, dotX, dotY, dotDp, dotDp);
+g->DrawEllipse(dotPen, dotX, dotY, dotDp, dotDp);
+```
+
+* Border `1*scale` ensures 1 logical px at any DPI.
+* Uses `SystemColors::Window` white border — visible on both `Control` grey and `White` popup? Icon is on main `Control` (`MyForm` `SystemColors::Control`), so white border contrasts.
+* No `Transparent` behind dot; `SmoothingMode AntiAlias` for round.
+
+**Placement:** `W - dotDp - 1*scale` ensures 1px margin, not `W-8` fixed.
+
+---
+
+## 13. Exact Proposed Markdown Renderer
+
+**New files:** `src/updater/MarkdownRenderer.h/.cpp` — independent, `UpdaterUI` only consumer, ~250 lines.
+
+**Interface:**
+```cpp
+public ref class MarkdownRenderer sealed {
+public:
+    static void Render(System::Windows::Forms::RichTextBox^ rtb, System::String^ markdown);
+private:
+    static void AppendHeading(RichTextBox^ rtb, String^ text, int level);
+    static void AppendParagraph(RichTextBox^ rtb, String^ line);
+    static void ParseInline(RichTextBox^ rtb, String^ text);
+    static void AppendCodeBlock(RichTextBox^ rtb, String^ code);
+};
+```
+
+**Supported (per §11):** headings `#`/`##`/`###` → Bold 12/10.5/9.5pt `#1A1A1A`; bold `**`/`__` → `Bold`; italic `*`/`_` → `Italic`; inline code `` ` `` → `Consolas 8.5pt BackColor #F3F3F3`; fenced code ` ``` ` → `Consolas 8.5pt BackColor #F5F5F5` left pad 4px; unordered `-`/`*` → `•` indent 12px; ordered `1.` → `1.` indent; links `[text](https://...)` → `Color #0067B8 Underline` + `LinkClicked` allow-list `https://github.com`; line breaks `\n` → `\par`; hr `---` → `Panel` or `─` 1px `#E1E1E1`; blockquote `>` → `Color #605E5C` + left border `3px #E1E1E1`.
+
+**Non-goals:** Tables, images, HTML (`<script>` stripped), full CommonMark.
+
+**Implementation:** Hand-rolled line scanner (state machine `inCodeBlock` bool), regex for inline `\\*\\*(.+?)\\*\\*` etc, or iterative `IndexOf`. Use `RichTextBox::SelectionStart/Length/Font/Color/SelectedText` or build RTF via `RtfBuilder`. No `WebView2` (100 MB, breaks Mica, overkill for text). `RichTextBox` is in `System.Windows.Forms` already.
+
+**Emoji:** Preserve Unicode surrogate pairs; set `rtb->Font = Segoe UI 9` and for emoji runs `SelectionFont = gcnew Font("Segoe UI Emoji",9)` if `Char::IsSurrogatePair`. Detect via `Char::IsHighSurrogate`/`IsLowSurrogate`.
+
+---
+
+## 14. Emoji Handling
+
+**Root cause:** Truncation `Substring(0,200)` mid-surrogate (`🚀` = `0xD83D 0xDE80` two `wchar_t`) → half-surrogate → `�`/`â`. `Label` `Segoe UI 9` lacks emoji glyph → tofu.
+
+**Fix:** `MarkdownRenderer::Render` does **not** `Replace("\r"," ")` flatten; preserves `\n` → `\par`. Never `Substring` mid-surrogate — check `Char::IsHighSurrogate(text[199])` and extend by 1 if truncated at high surrogate. Use `RichTextBox` with `Segoe UI Emoji` fallback for surrogate runs. `UnescapeJsonString 88-94` already leaves raw emoji verbatim (via `EscapeForJson` preserves `>0x20`), so body arrives intact UTF-16; renderer just displays.
+
+**Test:** Body `"🚀 Version 2.0\n- fix"` → heading `🚀` rendered via `Segoe UI Emoji 9`, not `â`.
+
+---
+
+## 15. Update-Status Area
+
+**Location:** Directly below `Release [ ▼ ]` (y `pad+28`), above warning.
+
+**Control:** `Label^ lblStatus` `336×16` `AutoSize false`, `Font Segoe UI 9`, `ForeColor` per state:
+
+- `✓ You are on the latest version: v2.1.0` → `Color::FromArgb(16,124,16) #107C10` green ( `✓ U+2713` via `Segoe UI` + `Segoe UI Emoji` for `✓` fallback)
+- `⚠ Newer version available: v2.2.0` → `Color::FromArgb(152,111,11) #986F0B` yellow/brown ( `⚠ U+26A0` )
+
+**Subtle, compact:** No oversized banner; `AutoSize true` or `336×16`, `BorderStyle None`, `BackColor Transparent`. Computed in `UpdaterPopup::RefreshHeader` via `state->IsUpdateAvailable()` (`UpdateState.cpp:87-93`) and `selectedVersion->CompareTo(installed)`.
+
+**Not collapsed into dot:** Dot and status both derive from same `>`, but dot is icon-only, status is text.
+
+---
+
+## 16. v1.0 / v2.0 Warning Behavior
+
+**Trigger:** `if (!selectedRelease->HasUpdaterSupport)` where `HasUpdaterSupport = Version->IsUpdaterSupported()` (`UpdateVersion.cpp:32-38` `major>2 || major==2 && minor>=1`). Covers `v1.0.0`, `v2.0.0` and any future `<v2.1.0`.
+
+**UI:** `Panel^ pnlWarning` `336×36` `BackColor #FFF8E1` (`Color::FromArgb(255,248,225)`) `Border 1px #F2C200`, `Visible` iff warning, `Label lblWarning` `8pt` `WordWrap` at `4,4` `328×28`:
+
+> “⚠ This version does not include the in-app updater. Future updates will require manual download from GitHub.”
+
+Visually distinct from status (warning panel vs status label), still compact (below status, above `Update` button). Not hard-coded `if(tag=="v2.0.0")` — uses capability method.
+
+**Downgrade dialog:** Keep `UpdaterPopup::ConfirmDowngradeIfNeeded` (`UpdaterUI.cpp:842-867`) `MessageBox` with same text, `YesNo` `Warning`, `Button2` default — already correct for `v2.0`/`v1.0`.
+
+---
+
+## 17. Release Dropdown Behavior
+
+**Control:** `ComboBox^ cmbRelease` `DropDownList` `Segoe UI 9` `330×21` (or `110×21` + label), `Location (60,0)` relative to `Release` label.
+
+**Population:** `UpdateState::GetAllReleasesSorted()` (new, no channel filter) → `for each r in list` `Items->Add(r->Tag)` tag only (e.g. `v2.1.0`), sorted `Version.CompareTo` descending, newest first, installed marked `✓` via `Tag + " ✓ installed"` suffix. `SelectedIndex 0` default = latest available.
+
+**OnSelectedIndexChanged:** `selectedRelease = list[SelectedIndex]` → `warningPanel.Visible = !selected->HasUpdaterSupport` → `MarkdownRenderer::Render(rtbNotes, selected->Body)` → `UpdateButtonStates()` (text `Update`/`Reinstall`/`Downgrade` per `CompareTo`).
+
+**No:** large preview cards, repository names, download counts, asset URLs in dropdown — tag sufficient. Details view shows `published_at` `html_url` `Body` only.
+
+---
+
+## 18. Update / Download Behavior
+
+**Selection does NOT download:** `OnListSelected`/`OnSelectedIndexChanged` only updates `lblStatus`/`pnlWarning`/`rtbNotes`; `UpdateInstaller::DownloadToTemp` not called. `CheckForUpdates` (`CheckAsync` 5s deferred + 6h periodic + `⟳` manual) only fetches JSON (`GitHubReleaseClient::FetchReleases`), not assets.
+
+**Button operates on selected release:** `btnUpdate` `Click → OnUpdateClick` → `DoUpdateForRelease(selectedRelease)`:
+
+- `newer` (`selected>installed`) → `Update` → `Confirm Update` `MessageBox` size `asset->Size` formatted `KB/MB` → `DownloadReleaseAsync` (background `Thread` `UpdateInstaller::DownloadToTemp %TEMP%\WindowsHelloFix\Updates\{guid}\Setup.exe` allow-list, progress via `IProgress`, `VerifyFile` SHA256) → `LaunchInstaller(silent=false)` `runas` → `Environment::Exit(0)` → NSIS `taskkill` + `MUI_FINISHPAGE_RUN`.
+- `same` → `Reinstall` (or disabled + confirm) → same download path.
+- `older` → `Downgrade` → `ConfirmDowngradeIfNeeded` warning first → same download.
+
+**Only button begins download:** `DownloadReleaseAsync` and `DownloadToUserPathAsync` (explicit `SaveFileDialog` path) are the only callers of `DownloadToTemp`/`DownloadToUserPath`. Opening flyout or changing dropdown only `Render`.
+
+**Temporary strategy preserved:** `UpdateInstaller.h:18-56` `CreateStagingPath %TEMP%`, `.part` atomic `Move`, `CleanupStagingPath` on cancel/fail, `CleanupOldStagingFolders(7)` on `Arm`. User “Download Installer…” via `SaveFileDialog` → `DownloadToUserPath` to chosen path, no temp, no auto-launch.
+
+---
+
+## 19. Security Implications
+
+**Preserved (`UpdateInstaller.cpp` / `GitHubReleaseClient`):**
+
+- HTTPS-only (`IsValidUrlImpl` checks `Scheme==https` `UpdateInstaller.cpp:48-56`)
+- GitHub allow-list `Host==github.com && Path.StartsWith("/Shivu516/Windows-Hello-Fix/releases/download/") && name==Windows_Hello_Fix_Setup.exe 48-53`
+- SHA-256 verification `VerifyFile 120-140` `SHA256::Create()->ComputeHash` + `Compare`
+- Installer validation `LaunchInstaller 300-334` `name==Setup.exe` + `Path under GetStagingRoot()` + `UseShellExecute true` + `Verb runas` UAC
+- Temporary staging `%TEMP%` per-user, `FileShare::None`, `.part` → `Move` atomic, `CleanupStagingPath` on cancel
+- Cancellation via `CancellationTokenSource` (`Updater.cpp:30-31`)
+
+**UI redesign does not weaken:** Markdown is **data not executable** — `MarkdownRenderer` strips HTML (`<script>` etc) and only emits RTF via `SelectionFont/Color`, never `WebBrowser` or `Process::Start` on markdown content. Links only via `RichTextBox::LinkClicked` allow-list `https://github.com`. No `WebView2` JS.
+
+---
+
+## 20. Performance Implications
+
+**Lightweight:**
+
+- One `Panel` icon `24×24` (now `20×20` base + DPI scale) + `Timer 500ms` pulse only when `Checking/Downloading` (`OnPulseTick 146`).
+- Single `UpdaterPopup` `Form` 360×420, created on first `ShowPopup`, reused (`popup==nullptr||IsDisposed` check `271`). No multiple windows.
+- No continuous repaint: `Invalidate` only on `StateChanged`/`PulseTick`/`MouseEnter`.
+- GitHub poll `6h` (`Updater.cpp:49`) + `30m` cooldown (`kMinCheckIntervalMs`), `ETag 304` reduces bandwidth. Release list `per_page=20` (5-20 KB JSON) parsed once per `200` via `ParseReleasesJson` hand-rolled (no `Newtonsoft`).
+- Markdown render only on `SelectedIndexChanged` (`RefreshDetailPane` → `MarkdownRenderer::Render`), not per-frame.
+
+---
+
+## 21. `src/core` Protection Strategy
+
+**Rule:** `src/core/*` 7 files (`MyForm.h`, `MyForm_Camera.cpp`, `MyForm_Config.cpp`, `MyForm_Core.cpp`, `MyForm_Events.cpp`, `MyForm_System.cpp`, `MyForm_UI.cpp`) remain **byte-for-byte**.
+
+**Integration stays via `main.cpp` (`main.cpp:1-82`):** Already `Updater` owned outside `src/core` (mirrors `RecoveryLoopFailsafe` precedent `AGENTS.md §1`). Icon via `ownerForm->Controls->Add(iconPanel)` dynamic injection at `UpdaterUI::InstallIcon 85` — no `MyForm_Core.cpp:119-180 InitializeComponent` edit. If DPI scaling needs `GetDpiForWindow`, still in `src/updater`.
+
+**If unavoidable core change discovered (per §25):** STOP and document:
+
+- **File:** e.g. `src/core/MyForm_Core.cpp:174`
+- **Lines:** `this->Text = L"Windows Hello Fix v2.0"` (stale title)
+- **Reason:** Title `v2.0` vs `v2.1` mismatch needs update for user clarity
+- **Why `src/updater`/`main.cpp` cannot solve:** `Updater::ApplyTitleFix` in `main.cpp` already does `form->Text = "Windows Hello Fix " + CurrentDisplayString()` post-construct without core edit — so **no** core change needed. This is the pattern for any future title/font case.
+
+**For this rework:** `src/core changed: NO` — verified `git diff -- src/core` empty.
+
+---
+
+## 22. `src/watchdog` Protection Strategy
+
+**Rule:** `src/watchdog/CameraFailsafe.h/.cpp`, `RecoveryLoopFailsafe.h/.cpp` (4 files) remain **byte-for-byte**.
+
+**Isolation:** `Updater` never includes `../watchdog`, never calls `CameraFailsafe::Arm`/`RecoveryLoopFailsafe::RequestRecoveryCheck`, never touches `g_lastHardwareToggleTick`. `Graph: src/core → camera, src/watchdog → failsafe, src/updater → releases` (no edges between watchdog and updater).
+
+**For this rework:** `src/watchdog changed: NO` — `git diff -- src/watchdog` empty.
+
+---
+
+## 23. Exact Future Files to Create / Change
+
+**New (1 pair):**
+```
+src/updater/MarkdownRenderer.h   — Render(RichTextBox^, String^) + helpers AppendHeading/ParseInline/AppendCodeBlock
+src/updater/MarkdownRenderer.cpp — hand-rolled scanner, Regex for **/*/code/links, RichTextBox RTF emission, emoji surrogate handling
+```
+
+**Modify (rework, no new logic):**
+```
+src/updater/UpdaterUI.h          — remove OnOwnerResize/OnPopupClosed from UpdaterPopup, add to UpdaterUI; add pendingUpdateRelease field; keep UpdaterUI::OnOwnerResize/OnPopupClosed declarations
+src/updater/UpdaterUI.cpp        — MAJOR: fix OnIconPaint (vector GDI, DPI scale, SystemColors, dot 6dp), fix ComputeIconLocation DPI, fix InitializeComponentPopup (SystemColors.Window, DoubleBuffered, FixedDialog qualified), remove comboChannel/browsePanel/listReleases detail controls, add cmbRelease + rtbNotes + pnlWarning/lblWarning + lblStatus, replace linkBrowse with single dropdown, replace lblNotes Label with RichTextBox, wire MarkdownRenderer::Render
+src/updater/UpdateState.h/.cpp   — add GetAllReleasesSorted() (no channel filter, sorted descending Version.CompareTo, installed ✓), keep Channel model but UI no longer calls GetReleasesForChannel
+```
+
+**Keep (no rework):**
+```
+src/updater/UpdateVersion.h/.cpp, UpdateChannel.h/.cpp, UpdateModels.h/.cpp, GitHubReleaseClient.h/.cpp, UpdateInstaller.h/.cpp, Updater.h/.cpp (minor: ensure static fields not redefined, TaskCompletionSource fully qualified)
+```
+
+**Outside protected (allowed):**
+```
+main.cpp                         — no change (already owns Updater via main.cpp:62-73); if title fix needs tweak, 1 line in ApplyTitleFix
+Windows_Hello_Fix_v2_0.vcxproj   — add <ClInclude MarkdownRenderer.h> + <ClCompile MarkdownRenderer.cpp>
+Windows_Hello_Fix_v2_0.vcxproj.filters — add filter entries for MarkdownRenderer
+docs/Plan.md                     — this appendix (26 items)
+```
+
+**Not touched:**
+```
+src/core/* (7), src/watchdog/* (4), x64/Release/install_script.nsi (for UI rework), app.manifest (optional DPI, not required), .gitignore, reference/
+```
+
+---
+
+## 24. Build Changes
+
+* **`Windows_Hello_Fix_v2_0.vcxproj`** — Add:
+  ```xml
+  <ClInclude Include="src\updater\MarkdownRenderer.h" />
+  <ClCompile Include="src\updater\MarkdownRenderer.cpp" />
+  ```
+  Keep existing `Reference System.Net.Http` (`:130`). No new third-party (`Markdig`, `Newtonsoft.Json`, `WebView2`). `System.Windows.Forms` already provides `RichTextBox`.
+
+* **`Windows_Hello_Fix_v2_0.vcxproj.filters`** — Add:
+  ```xml
+  <ClInclude Include="src\updater\MarkdownRenderer.h"><Filter>Header Files</Filter></ClInclude>
+  <ClCompile Include="src\updater\MarkdownRenderer.cpp"><Filter>Source Files\src\updater</Filter></ClCompile>
+  ```
+
+* **No `app.manifest` DPI change required** for minimal rework (keep `TargetFramework v4.7.2` `WindowsTarget 10.0` `CLRSupport true`). Optional follow-up `<dpiAware>PerMonitorV2</dpiAware>` could improve `24×24` scaling but not required for artifact fix (vector + `DeviceDpi` scale already handles).
+
+---
+
+## 25. Detailed Test Matrix
+
+| Area | Case | Expected |
+|---|---|---|
+| **Icon** | normal 24×24@96dpi + 36×36@144dpi | vector arrow centered, not `v` |
+| | dot absent (`UpToDate`) | no dot, tooltip “Up to date” |
+| | dot present (`latest>installed`) | 6dp red `#D13438` white 1px border at `W-7,1` DPI-scaled |
+| | DPI 100/150/200% | `GetDpiForWindow` scale, no blur |
+| | light / dark / high-contrast + Mica/Translucent | `SystemColors` inherits tint, no hard `White` |
+| **Flyout** | opens at `owner.X+W-W-10` clamped, closes via X | 360×420 (520 expanded), no white artifact on dark |
+| | remains owned, Deactivate does not auto-close | no black/white flash |
+| | `DoubleBuffered true`, `SystemColors.Window` | no flicker |
+| **Release list** | all current releases appear (v2.1.0, v2.0.0, v1.0.0) | one ComboBox sorted newest first, tag only, installed `✓` |
+| | dropdown selection changes preview | `MarkdownRenderer::Render` called |
+| **Release notes** | headings, bold/italic, inline code, code blocks, lists, links, emoji, hr, blockquote | RichTextBox formatted, emoji via `Segoe UI Emoji`, links clickable |
+| | malformed markdown (`**unclosed`) | plain, no crash |
+| | long notes (>200 lines) | vertical scroll |
+| | empty `body` | placeholder “No release notes” |
+| **Version state** | `installed==latest` | `✓ You are on the latest version: v2.1.0` green |
+| | `installed<latest` | `⚠ Newer version available: v2.2.0` yellow, dot visible |
+| | `selected older` `v2.1→v2.0` | warning panel visible |
+| | `v1.0` selected | same warning via `IsUpdaterSupported==false` |
+| **Network** | offline/timeout/malformed/GitHub 5xx | `Offline/Error` banner, cached shown |
+| | cached stale <24h | `CacheUsed` banner |
+| **Update** | selection does not download | `DownloadToTemp` not called until button |
+| | button `Update`/`Reinstall`/`Downgrade` label per `CompareTo` | correct |
+| | successful handoff | staged `%TEMP%` verified SHA256, `LaunchInstaller` `runas`, `Exit(0)`, NSIS `taskkill` + `MUI_FINISHPAGE_RUN` |
+| | cancel/failed download | `CancellationToken`, `.part` deleted, `Error` banner |
+| **Regression** | camera toggle, watchdog, `Restore true`, `WndProc` lock/unlock `7/8`, suspend/resume `0x0004/0x8013`, Issue #2 `BringWindowToFront` | unchanged, `diagnostic.log` no `Updater_*` during camera path |
+
+---
+
+## 26. Rollback Strategy
+
+* **Icon/popup regresses:** `git checkout HEAD -- src/updater/UpdaterUI.h src/updater/UpdaterUI.cpp src/updater/MarkdownRenderer.*` + `git diff -- src/updater/UpdateState.*` revert `GetAllReleasesSorted` (keep channel filter), rebuild — `src/core` still zero. Or `UpdaterUI::InstallIcon` guard `if(DpiX>192) fallback` toggle.
+* **MarkdownRenderer breaks:** Keep `lblNotes` fallback: if `Render` throws, `rtb->Text = body` plain + `MessageBox` “Failed to render markdown”.
+* **Rate limit / cache corruption:** Delete `%APPDATA%\Windows Hello Fix\updater_cache.json` + `updater_etag.txt` → `Idle`, `CheckAsync(true)` rebuilds.
+* **DPI regression:** Remove `<dpiAware>` if added, rebuild — bitmap-scale returns.
+* **Uninstall safety:** `x64/Release/install_script.nsi` `Section Uninstall` unchanged (add `Delete "$APPDATA\...\updater_cache.json"` later, safe to leave).
+
+

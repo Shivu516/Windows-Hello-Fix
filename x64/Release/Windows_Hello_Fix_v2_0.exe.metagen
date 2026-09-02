@@ -190,6 +190,7 @@ Class Windows_Hello_Fix_v2_0.Updater.UpdateState: AutoLayout, AnsiClass, Class, 
     set_PendingDownloadRelease(GitHubRelease): PrivateScope, Public, HideBySig, SpecialName
     IsUpdateAvailable(): PrivateScope, Public, HideBySig
     IsInstalledNewerThanLatest(): PrivateScope, Public, HideBySig
+    GetAllReleasesSorted(): PrivateScope, Public, HideBySig
     GetReleasesForSelectedChannel(): PrivateScope, Public, HideBySig
     GetReleasesForChannel(UpdateChannel): PrivateScope, Public, HideBySig
     GetLatestForSelectedChannel(): PrivateScope, Public, HideBySig
@@ -352,3 +353,7 @@ Class Windows_Hello_Fix_v2_0.Updater.UpdaterPopup: AutoLayout, AnsiClass, Class,
   Methods:
     RefreshForExternalChange(): PrivateScope, Public, HideBySig
     SelectRelease(GitHubRelease): PrivateScope, Public, HideBySig
+Class Windows_Hello_Fix_v2_0.Updater.MarkdownRenderer: AutoLayout, AnsiClass, Class, Public, Sealed, BeforeFieldInit
+    Void .ctor(): PrivateScope, Public, HideBySig, SpecialName, RTSpecialName
+  Methods:
+    Render(RichTextBox, String): PrivateScope, Public, Static, HideBySig

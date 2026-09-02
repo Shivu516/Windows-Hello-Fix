@@ -59,6 +59,7 @@ namespace Updater {
         // Derived
         bool IsUpdateAvailable();
         bool IsInstalledNewerThanLatest();
+        System::Collections::Generic::List<GitHubRelease^>^ GetAllReleasesSorted();
         System::Collections::Generic::List<GitHubRelease^>^ GetReleasesForSelectedChannel();
         System::Collections::Generic::List<GitHubRelease^>^ GetReleasesForChannel(UpdateChannel channel);
         GitHubRelease^ GetLatestForSelectedChannel();
