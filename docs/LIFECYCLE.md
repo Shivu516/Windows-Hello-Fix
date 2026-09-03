@@ -10,7 +10,12 @@
        - if any arg in {--background,/background,--disable-camera,/disable-camera,
                          --enable-camera,/enable-camera,/restore-camera,/repair-camera}:
            form.Opacity = 0; ShowInTaskbar=false; WindowState=Minimized
+       - scan camera verbs -> isCommandWorker
+       - if (!isCommandWorker): recoveryLoop = gcnew RecoveryLoopFailsafe(%form);
+           form.Load += OnOwnerLoad (Arm); form.FormClosing += OnOwnerClosing (Disarm)
+         (command workers exit inside MyForm_Load, so they never get a watchdog)
        - Application::Run(%form)
+       - after Run returns: recoveryLoop->Disarm()
 ```
 
 ## WinForms initialization
@@ -58,11 +63,15 @@
         if WTSRegisterSessionNotification(handle, NOTIFY_FOR_THIS_SESSION): break
         Sleep(500)
     log success or last error
+19. if (!isSystemEnding): cameraFailsafe = gcnew CameraFailsafe(this); cameraFailsafe->Arm()
+    (45 s grace, 90 s poll, 10 s verify — long-term backup)
+20. Load event completes -> main.cpp OnOwnerLoad fires -> recoveryLoop->Arm()
+    (5 s startup check, 30 s poll, 5 s retry — fast verifier)
 ```
 
 ## Steady state
 
-Window visible (or hidden if background), `isMonitoring` possibly true, wake listener running, power + WTS notifications registered. The app now reacts to lock/unlock/suspend/resume/shutdown via `WndProc`.
+Window visible (or hidden if background), `isMonitoring` possibly true, wake listener running, power + WTS notifications registered, both watchdogs armed. The app now reacts to lock/unlock/suspend/resume/shutdown via `WndProc`, and the watchdogs recover an unexpectedly-disabled camera while ExpectedEnabled (fast verifier: 5 s startup check then 30 s poll + 5 s retry; long-term failsafe: 90 s poll + 10 s confirm).
 
 ## Monitoring activation (user)
 
@@ -83,6 +92,7 @@ Window visible (or hidden if background), `isMonitoring` possibly true, wake lis
 ## Destructor `~MyForm`
 
 ```
+cameraFailsafe->Disarm(); cameraFailsafe = nullptr   // watchdog first: no tick may outlive shutdown logic
 keepListening = false
 if isSystemEnding:
     DisableTargetCameraHardware(true)
@@ -97,10 +107,11 @@ UnregisterPowerSettingNotification(hLid/hButton)
 delete cachedCameras; delete selectedInstanceId; delete components
 CloseHandle(hAppMutex)
 ```
+(`main.cpp` additionally disarms `recoveryLoop` on `FormClosing` via `OnOwnerClosing` and once more after `Application::Run` returns.)
 
 ## Finalizer `!MyForm`
 
-Same native/hardware cleanup minus the `SaveConfigState` calls; it is the GC safety net.
+Same native/hardware cleanup minus the `SaveConfigState` calls, **plus** the same `cameraFailsafe->Disarm()` prologue; it is the GC safety net.
 
 ## Key timing summary
 

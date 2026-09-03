@@ -1,20 +1,25 @@
-# Windows Hello Fix v2.0 — Architecture
+# Windows Hello Fix v2.1 — Architecture
 
-> Documentation-only. Describes the **current** extracted source under `src/core/`. No code was modified.
+> Documentation-only. Describes the **current** source under `src/core/` + `src/watchdog/` + `main.cpp`. No code was modified.
 
 ## Reference implementation relationship
 
 ```
-release-v2.0/MyForm.h  (1362-line monolith, known-good)
+reference/release-v2.0/MyForm.h  (monolith, known-good camera truth)
         │  mechanical extraction
         ▼
 src/core/MyForm.h            declaration only (class, struct, globals `extern`)
 src/core/MyForm_Camera.cpp   native camera pipeline + Disable/Enable/Restore members
 src/core/MyForm_Config.cpp   config + diagnostic logging + target resolution
-src/core/MyForm_Core.cpp     ctor / dtor / finalizer / InitializeComponent / MyForm_Load
+src/core/MyForm_Core.cpp     ctor / dtor / finalizer / InitializeComponent / MyForm_Load + failsafe accessors
 src/core/MyForm_Events.cpp   WndProc (session / power / shutdown)
 src/core/MyForm_System.cpp   command parsing + wake listener
 src/core/MyForm_UI.cpp       FormClosing + btnToggle_Click
+        │  later addition (failsafe work, outside src/core)
+        ▼
+src/watchdog/CameraFailsafe.*         long-term observe/recover (owned by MyForm)
+src/watchdog/RecoveryLoopFailsafe.*   fast startup/poll/retry  (owned by main.cpp)
+main.cpp                              entry + hidden launch + RecoveryLoopFailsafe wiring
 ```
 
 The extraction kept **`MyForm` as the single, central state owner**. No `ApplicationController`, `CameraController`, `EventController`, or `RecoveryController` was introduced. Only member-function *bodies* moved into separate translation units; the class, its members, its lifetime, and its behavioral authority are unchanged from `release-v2.0/MyForm.h`.
@@ -31,39 +36,51 @@ This preserves the original `#include "MyForm.h"` path used by `main.cpp` withou
 ```mermaid
 flowchart TD
     A[main.cpp] --> B[MyForm]
+    A --> R[RecoveryLoopFailsafe<br/>fast verifier]
     B --> C[MyForm_Core.cpp<br/>ctor/dtor/Load]
     B --> D[MyForm_Camera.cpp<br/>hardware pipeline]
     B --> E[MyForm_Config.cpp<br/>config + logging]
     B --> F[MyForm_Events.cpp<br/>WndProc]
     B --> G[MyForm_System.cpp<br/>commands + wake]
     B --> H[MyForm_UI.cpp<br/>UI handlers]
+    B --> W[CameraFailsafe<br/>long-term failsafe]
 
     C -->|startup| D
     C -->|startup| E
     C -->|startup| G
+    C -->|arm| W
     F -->|lock/sleep| D
     F -->|unlock/resume| D
     H -->|stop| D
     G -->|wake signal| B
+    W -->|observe| D
+    W -->|recover enable-only| D
+    R -->|observe| D
+    R -->|recover enable-only| D
 ```
+
+> **Authority rule (load-bearing):** `D` (`MyForm_Camera.cpp`) is the only box that changes device state. `W` and `R` observe via `GetCameraHardwareDisabledState` and recover via `RecoverCameraHardware(target, false)` + `VerifyCameraHardwareState` — they contain no `SetupDi*`/`CM_*` device-state calls.
 
 ## Runtime lifecycle
 
 ```mermaid
 flowchart TD
     A[Process start] --> B[main.cpp: MyForm form]
-    B --> C[Application::Run]
+    B --> B2[main.cpp: wire RecoveryLoopFailsafe<br/>Load → Arm, FormClosing → Disarm]
+    B2 --> C[Application::Run]
     C --> D[MyForm ctor → InitializeComponent]
     D --> E[MyForm_Load]
     E --> F[Single-instance mutex]
     F --> G[Restore camera]
     G --> H[Register power + WTS]
-    H --> I[Populate dropdown / auto-start]
+    H --> H2[Arm CameraFailsafe + fire Load → RecoveryLoop Arm]
+    H2 --> I[Populate dropdown / auto-start]
     I --> J[Start wake listener thread]
     J --> K[Steady state: monitoring]
     K --> L[Lock / Sleep → disable camera]
     K --> M[Unlock / Resume → enable camera]
-    K --> N[Shutdown → isSystemEnding → dtor]
+    K --> N[Watchdog: unexpected Disabled → enable-only recover]
+    K --> O[Shutdown → isSystemEnding → disarm watchdogs → dtor]
 ```
 
 ## State ownership
@@ -79,15 +96,17 @@ flowchart TD
 | `backgroundWorker`, `keepListening` | `MyForm` |
 | `deviceDrop`, `btnToggle`, `lblTitle`, `lblStatus`, `components` | `MyForm` (WinForms) |
 | `diagnosticLogSync` | `MyForm` |
+| `cameraFailsafe` (owned watchdog) | `MyForm` (created/armed in `MyForm_Load`, disarmed in dtor/finalizer) |
+| `recoveryLoop` (fast verifier) | `main.cpp` (wired to `Load`/`FormClosing`, never for command workers) |
 | `g_lastHardwareToggleTick`, `g_lastSetupApiError`, `g_lastConfigManagerResult`, `g_lastHardwareToggleStage` | Defined once in `MyForm_Camera.cpp`, `extern` elsewhere (single authoritative instance) |
 | `config.txt`, `diagnostic.log` | Filesystem under `%APPDATA%\Windows Hello Fix` |
 
 ## Threading model
 
-1. **UI thread** — message pump, `MyForm_Load`, `WndProc`, `btnToggle_Click`, `MyForm_FormClosing`, all camera members when invoked from UI/Load/WndProc.
+1. **UI thread** — message pump, `MyForm_Load`, `WndProc`, `btnToggle_Click`, `MyForm_FormClosing`, all camera members when invoked from UI/Load/WndProc, and **both watchdogs** (`CameraFailsafe` poll/verify timers, `RecoveryLoopFailsafe` startup/poll/retry timers — all `System::Windows::Forms::Timer`, all guarded by expected-state checks).
 2. **Background wake listener** (`backgroundWorker`, `IsBackground=true`) — runs `ListenForWakeupSignal`, blocks on `WaitForSingleObject(hWakeupEvent)`. Only updates the window via `Invoke`; never touches camera hardware.
 
-No thread pool, no task queue, no async camera operations. This matches the original v2.0 threading model.
+No thread pool, no task queue, no async camera operations. This matches the original v2.0 threading model; the watchdogs add timers on the existing pump, not threads.
 
 ## Dependency map
 
@@ -107,9 +126,12 @@ flowchart LR
     EVT --> CFG
     UI --> CAM
     UI --> CFG
+    WD1[CameraFailsafe.cpp] --> MFH
+    WD2[RecoveryLoopFailsafe.cpp] --> MFH
+    CORE --> WD1
 ```
 
-`MyForm.h` is the hub; every `.cpp` includes it. `MyForm_Camera.cpp` defines the shared globals and is the only place that calls SetupAPI/CfgMgr.
+`MyForm.h` is the hub; every `.cpp` includes it. `MyForm_Camera.cpp` defines the shared globals and is the only place that calls SetupAPI/CfgMgr to change device state. `MyForm_Core.cpp` is the only core TU that includes a watchdog header (to construct/arm `CameraFailsafe`). `main.cpp` includes `RecoveryLoopFailsafe.h` and owns that instance; the watchdog `.cpp` files include `../core/MyForm.h` for the accessors and native pipeline declarations. Neither watchdog calls the other.
 
 ## Camera operation flow (high level)
 

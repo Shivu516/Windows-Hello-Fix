@@ -72,6 +72,10 @@ Second instance starts -> OpenEvent(Global\WindowsHelloFix_WakeupEvent) -> SetEv
   -> BringWindowToFrontDelegate (Invoke to UI thread)
 ```
 
+## Watchdog recovery (non-WndProc path)
+
+Unexpected-disabled recovery does **not** flow through `WndProc` — there is no `WM_DEVICECHANGE`/`WM_APP+0x20` handler in the current source. Both watchdogs poll on WinForms timers (`CameraFailsafe`: 90 s + 10 s confirm; `RecoveryLoopFailsafe`: 5 s startup + 30 s poll + 5 s retry) and call the same `Disable/EnableTargetCameraHardware` → `RecoverCameraHardware` pipeline the message handlers use. Expected-state guards (`IsMonitoringActive` / `IsSystemEndingActive` / `IsCameraExpectedEnabled`) keep them from fighting lock/suspend/shutdown disables. See `docs/watchdog/`.
+
 ## Debounce constants
 
 | Event class | State | Window |

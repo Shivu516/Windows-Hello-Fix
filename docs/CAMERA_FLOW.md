@@ -118,3 +118,7 @@ All API failures are captured into the four `g_last*` globals (`g_lastSetupApiEr
 ## 14. Shutdown behavior
 
 On `isSystemEnding`, the destructor calls `DisableTargetCameraHardware(true)` (leave disabled). On a normal close, the destructor calls `EnableTargetCameraHardware(false)` (leave enabled). See `docs/LIFECYCLE.md`.
+
+## 15. Watchdog recovery (observation layer, not a second pipeline)
+
+`src/watchdog/CameraFailsafe` (90 s poll → 10 s confirm) and `src/watchdog/RecoveryLoopFailsafe` (5 s startup check → 30 s poll → 5 s retry) detect *unexpected* Disabled while ExpectedEnabled and recover by calling **this pipeline** — `RecoverCameraHardware(target, false)` (enable-only, no cycle) + `VerifyCameraHardwareState(target, false)` — bounded to 3 attempts with cooldown. They never call `ToggleCameraHardware`/`ToggleCameraHardwareCfgMgr` directly and never disable. Full detail: `docs/watchdog/`.

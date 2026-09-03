@@ -9,6 +9,8 @@
 
 Owns the entire **native camera hardware pipeline** plus the `MyForm` member functions `DisableTargetCameraHardware`, `EnableTargetCameraHardware`, and `RestoreConfiguredCameraHardware`. It also defines the four shared `g_last*` globals (lines 9–12) so they have a single authoritative definition.
 
+> **Camera authority:** this file is the **authoritative camera-hardware implementation** — the only place that calls SetupAPI (`SetupDi*`) and CfgMgr (`CM_*`) to change device state. The watchdog files under `src/watchdog/` never touch these APIs; they only *observe* via `GetCameraHardwareDisabledState`/`VerifyCameraHardwareState` and *request* recovery through `RecoverCameraHardware(target, false)`. See `docs/watchdog/`.
+
 ## Global state (lines 9–12)
 
 ```cpp

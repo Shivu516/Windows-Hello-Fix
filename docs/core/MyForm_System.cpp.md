@@ -1,7 +1,7 @@
 # `src/core/MyForm_System.cpp` — Command Parsing & Wake Listener
 
 **Path:** `src/core/MyForm_System.cpp`
-**Lines:** 53
+**Lines:** 54
 **Included by:** built directly; `#include "MyForm.h"`
 
 ## Purpose
@@ -33,8 +33,8 @@ while (keepListening && hWakeupEvent != NULL) {
 - When signaled by a second instance's `SetEvent`, it raises the main window. `InvokeRequired` ensures the UI update happens on the UI thread (the listener is background, so `Invoke` is normally taken).
 - `keepListening` is set `false` by destructor/finalizer to break the loop.
 
-### `BringWindowToFrontDelegate` (43–51)
-Pure UI: `Show`, `Visible=true`, `ShowInTaskbar=true`, `WindowState=Normal`, `BringToFront`, `Activate`, `Refresh`.
+### `BringWindowToFrontDelegate` (43–53)
+Pure UI restore (Issue #2 opacity handling): `Opacity = 1.0` (undoes the `Opacity = 0` hidden-launch in `main.cpp`/`MyForm_Load`), then `Show`, `Visible=true`, `ShowInTaskbar=true`, `WindowState=Normal`, `BringToFront`, `Activate`, `Refresh`.
 
 ## Scenario matrix (current behavior)
 

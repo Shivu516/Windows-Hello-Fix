@@ -731,3 +731,20 @@ schtasks /Delete /TN "WindowsHelloFix_Unlock" /F
 ---
 
 # End of Plan — Implementation to follow (no src/core changes)
+
+---
+
+## 31. Documentation pass — complete `src/` coverage (2026-09-03, docs-only)
+
+> **Status: DONE — no source modified (`git diff -- src/` empty).**
+> **Scope:** audit `docs/core/` against current source; create `docs/watchdog/` at the same depth; update cross-file docs (`SOURCE_TREE`, `ARCHITECTURE`, `FUNCTION_INDEX`, `LIFECYCLE`, `KNOWN_ISSUES`, `CAMERA_FLOW`, `EVENT_FLOW`).
+
+**Source tree inspected (authoritative):** `src/core/` 7 files (`MyForm.h`, `MyForm_Camera.cpp`, `MyForm_Config.cpp`, `MyForm_Core.cpp`, `MyForm_Events.cpp`, `MyForm_System.cpp`, `MyForm_UI.cpp`) + `src/watchdog/` 4 files (`CameraFailsafe.h/.cpp`, `RecoveryLoopFailsafe.h/.cpp`). Branch `v2.1`, tree clean before and after (only `docs/` paths added/modified).
+
+**Core audit result:** `MyForm_Camera.cpp`, `MyForm_Config.cpp`, `MyForm_Events.cpp`, `MyForm_UI.cpp` docs were current (verified function-by-function; only added an explicit camera-authority statement to the Camera doc). Three docs were stale and updated: `MyForm.h.md` (added `cameraFailsafe` member, watchdog forward-decl, six failsafe accessors; fixed line numbers), `MyForm_Core.cpp.md` (407→463 lines: ctor `cameraFailsafe=nullptr`, dtor/finalizer `Disarm()` prologue, `SingleInstance_BackgroundSilentExit` log name, `CameraFailsafe::Arm()` step, full accessor table), `MyForm_System.cpp.md` (53→54 lines: `Opacity=1.0` Issue #2 restore line). Stale enablers: `src/ui`→`src/core` rename + failsafe additions since `c0f73b2`.
+
+**Watchdog docs created** (`docs/watchdog/`, same structure/depth as `docs/core/`): `CameraFailsafe.h.md`, `CameraFailsafe.cpp.md`, `RecoveryLoopFailsafe.h.md`, `RecoveryLoopFailsafe.cpp.md` — purpose, non-ownership, every function (purpose/inputs/outputs/flow/branches/deps/side effects/failures/timing/sensitivity), line-level treatment of guard chains, timing envelopes, `Failsafe_*`/`RecoveryLoop_*` log tables, and the complement table between the two loops.
+
+**Source-wins corrections applied** (old docs/plan said otherwise, current source rules): `CameraFailsafe` poll is **90 s** (not 60 s); **no** `CM_Register_Notification` accelerator exists in either watchdog (timer-only; no `WM_APP+0x20` handler in `WndProc`); `RecoveryLoopFailsafe::RequestRecoveryCheck(reason)` ignores `reason`. Recorded as such, not "fixed".
+
+**Remaining gaps:** `main.cpp` has no per-file doc (out of `src/` scope; covered via `FUNCTION_INDEX` + `LIFECYCLE` + `SOURCE_TREE` entries); live reboot/hardware matrix still `NOT TESTED` (see §23); `Plan.md §3` 60 s/PnP description left as historical — superseded by this section for the implementation of record.
