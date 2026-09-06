@@ -1,5 +1,6 @@
 <p align="center">
   <!-- BANNER IMAGE PLACEHOLDER: HelloFix banner/logo (GitHub-hosted image) goes here -->
+	<img width="210" src="/x64/Release/WindowsHelloFix.ico" alt="HelloFix Logo">
 </p>
 
 # Windows Hello Fix v2.1 📸
