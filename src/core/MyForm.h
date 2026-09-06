@@ -1,6 +1,7 @@
 #pragma once
 
 #include <windows.h>
+#include <intrin.h> // Exposes _Interlocked*64 / Interlocked*64 on x86 (Win32); no-op on x64. Preserves LONG64 CAS semantics.
 #include <wtsapi32.h>
 #include <setupapi.h>
 #include <cfgmgr32.h>

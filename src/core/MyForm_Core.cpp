@@ -171,7 +171,7 @@ namespace Windows_Hello_Fix_v2_0 {
         this->MinimizeBox = false;
         this->Name = L"MyForm";
         this->StartPosition = System::Windows::Forms::FormStartPosition::CenterScreen;
-        this->Text = L"Windows Hello Fix v2.0";
+        this->Text = L"Windows Hello Fix v2.1";
         this->FormClosing += gcnew System::Windows::Forms::FormClosingEventHandler(this, &MyForm::MyForm_FormClosing);
         this->Load += gcnew System::EventHandler(this, &MyForm::MyForm_Load);
 
@@ -289,6 +289,8 @@ namespace Windows_Hello_Fix_v2_0 {
                 }
 
                 system("taskkill /F /IM Windows_Hello_Fix_v2_0.exe /T");
+                system("taskkill /F /IM Windows_Hello_Fix_v2_1_x86.exe /T");
+                system("taskkill /F /IM Windows_Hello_Fix_v2_1_x64.exe /T");
                 ::Sleep(500);
                 Application::Restart();
             }

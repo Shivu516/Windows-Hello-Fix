@@ -10,7 +10,7 @@ namespace Windows_Hello_Fix_v2_0 {
 
             if (!isBackgroundMode) {
                 MessageBox::Show(
-                    L"The program is running in the background. To close it completely, click 'Stop Monitoring Service' or kill 'Windows_Hello_Fix_v2_0.exe' in Task Manager.",
+                    L"The program is running in the background. To close it completely, click 'Stop Monitoring Service' or kill the app in Task Manager.",
                     L"Background Service Active",
                     MessageBoxButtons::OK,
                     MessageBoxIcon::Information

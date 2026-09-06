@@ -1,0 +1,40 @@
+ImageRuntimeVersion: v4.0.30319
+Assembly Windows_Hello_Fix_v2_1_x86, Version=0.0.*, Culture=Invariant Language (Invariant Country): 
+	hash=SHA1, flags=PublicKey
+Assembly mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089: 
+	hash=None, flags=None
+Assembly System.Data, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089: 
+	hash=None, flags=None
+Assembly System, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089: 
+	hash=None, flags=None
+Assembly System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a: 
+	hash=None, flags=None
+Assembly System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089: 
+	hash=None, flags=None
+Assembly System.Xml, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089: 
+	hash=None, flags=None
+Class Windows_Hello_Fix_v2_0.MyForm: AutoLayout, AnsiClass, Class, Public, BeforeFieldInit
+  :System.Windows.Forms.Form
+    Void .ctor(): PrivateScope, Public, HideBySig, SpecialName, RTSpecialName
+  Methods:
+    IsMonitoringActive(): PrivateScope, Public, HideBySig
+    IsSystemEndingActive(): PrivateScope, Public, HideBySig
+    IsCameraExpectedEnabled(): PrivateScope, Public, HideBySig
+    TryGetFailsafeTargetId(basic_string<wchar_t\,std::char_traits<wchar_t>\,std::allocator<wchar_t> >* IsImplicitlyDereferenced): PrivateScope, Public, HideBySig
+    LogFailsafe(String, String, Boolean(HasFieldMarshal)): PrivateScope, Public, HideBySig
+    LogFailsafeWithDevice(String, basic_string<wchar_t\,std::char_traits<wchar_t>\,std::allocator<wchar_t> >*, String, Boolean(HasFieldMarshal)): PrivateScope, Public, HideBySig
+Class Windows_Hello_Fix_v2_0.RecoveryLoopFailsafe: AutoLayout, AnsiClass, Class, Public, BeforeFieldInit
+    Void .ctor(Windows_Hello_Fix_v2_0.MyForm): PrivateScope, Public, HideBySig, SpecialName, RTSpecialName
+  Interfaces:
+    System.IDisposable
+  Methods:
+    Arm(): PrivateScope, Public, HideBySig
+    Disarm(): PrivateScope, Public, HideBySig
+    OnOwnerLoad(Object, EventArgs): PrivateScope, Public, HideBySig
+    OnOwnerClosing(Object, FormClosingEventArgs): PrivateScope, Public, HideBySig
+    Dispose(): PrivateScope, Public, Final, Virtual, HideBySig
+Class Windows_Hello_Fix_v2_0.CameraFailsafe: AutoLayout, AnsiClass, Class, Public, BeforeFieldInit
+    Void .ctor(Windows_Hello_Fix_v2_0.MyForm): PrivateScope, Public, HideBySig, SpecialName, RTSpecialName
+  Methods:
+    Arm(): PrivateScope, Public, HideBySig
+    Disarm(): PrivateScope, Public, HideBySig

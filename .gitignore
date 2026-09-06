@@ -11,9 +11,9 @@ x64/
 x86/
 ARM64/
 
-# Debug/Release build directories
-Debug/
-Release/
+# # Debug/Release build directories
+# Debug/
+# Release/
 
 # Build intermediates
 [Bb]uild/
@@ -47,15 +47,15 @@ Desktop.ini
 # Tracked exceptions
 # The NSIS installer script is source code, not build output.
 # ------------------------------------------------------------
-!x64/
-x64/*
-!x64/Release/
-x64/Release/*
-!x64/Release/install_script.nsi
-!x64/Release/LICENCE.rtf
-!x64/Release/README.html
-!x64/Release/Windows_Hello_Fix_v2_0.exe.metagen
-!x64/Release/WindowsHelloFix.ico
+# !x64/
+# x64/*
+# !x64/Release/
+# x64/Release/*
+# !x64/Release/install_script.nsi
+# !x64/Release/LICENCE.rtf
+# !x64/Release/README.html
+# !x64/Release/Windows_Hello_Fix_v2_0.exe.metagen
+# !x64/Release/WindowsHelloFix.ico
 
 # Keep compiled executables out of Git history.
 x64/Release/Windows_Hello_Fix_Setup.exe

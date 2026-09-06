@@ -28,8 +28,9 @@ Other relevant files (outside `src/`):
 MyForm.h                              Root shim -> #include "src/core/MyForm.h"
 main.cpp                             Entry point (MyForm form + Application::Run + RecoveryLoopFailsafe wiring, 67 lines)
 ProductionUtilities.h                Legacy/unused helper header (not part of the build flow)
-Windows_Hello_Fix_v2_0.vcxproj       MSBuild project (lists all src/core + src/watchdog files)
+Windows_Hello_Fix_v2_0.vcxproj       MSBuild project (lists all src/core + src/watchdog files; per-platform <TargetName> v2_1_x86/x64)
 Windows_Hello_Fix_v2_0.vcxproj.filters
+installer/                           NSIS source: common.nsh (shared logic) + install_x86/x64/universal .nsi (thin wrappers)
 reference/                           Canonical references: release-v2.0 (camera truth), legacy-v1.0 (untouched)
 ```
 

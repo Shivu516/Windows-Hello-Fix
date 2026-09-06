@@ -76,11 +76,11 @@ Retries up to **3 times**: calls `GetCameraHardwareDisabledState` and returns `t
 
 ## Cooldown (declared, lightly used)
 
-### `TryEnterHardwareToggleCooldown` (277–296)
-Spins up to 8 times using `InterlockedCompareExchange64` on `g_lastHardwareToggleTick` to atomically claim a cooldown window of `cooldownMs`. Returns `false` if still within the window, `true` if it successfully stamped the tick. **Note:** in the current code path this function is *not called* by the main flow (see `docs/KNOWN_ISSUES.md`).
+### `TryEnterHardwareToggleCooldown` (277–303)
+Spins up to 8 times using `_InterlockedCompareExchange64` (compiler intrinsic from `<intrin.h>`) on `g_lastHardwareToggleTick` to atomically claim a cooldown window of `cooldownMs`. The intrinsic form is used because the SDK excludes the `Interlocked*64` API aliases from managed (/clr) x86 code; semantics are identical on x86/x64. Returns `false` if still within the window, `true` if it successfully stamped the tick. **Note:** in the current code path this function is *not called* by the main flow (see `docs/KNOWN_ISSUES.md`).
 
-### `RecordHardwareToggleTime` (298–300)
-Stamps `g_lastHardwareToggleTick = GetTickCount64()` (interlocked). Called by `SetCameraHardwareStateVerified` after a successful verified transition.
+### `RecordHardwareToggleTime` (305–315)
+Stamps `g_lastHardwareToggleTick = GetTickCount64()` via an atomic CAS loop built on `_InterlockedCompareExchange64` (observably identical to `InterlockedExchange64`, whose return value is unused here; the `_InterlockedExchange64` intrinsic is not exposed to managed x86). Called by `SetCameraHardwareStateVerified` after a successful verified transition.
 
 ## Verified set + recovery
 

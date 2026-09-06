@@ -275,8 +275,14 @@ bool VerifyCameraHardwareState(std::wstring targetId, bool shouldBeDisabled) {
 }
 
 bool TryEnterHardwareToggleCooldown(ULONGLONG cooldownMs) {
+    // NOTE: uses _InterlockedCompareExchange64 (compiler intrinsic from <intrin.h>)
+    // rather than InterlockedCompareExchange64 (Win32 API alias). The SDK's x86
+    // branch excludes the API alias under /clr (winnt.h guards it with
+    // !defined(_MANAGED)), while the intrinsic is available on x86, x64 and
+    // ARM64 alike. Same atomic CAS semantics on all architectures; x64 already
+    // compiled to this intrinsic (baseline C4793).
     for (int spin = 0; spin < 8; spin++) {
-        LONG64 lastTick = InterlockedCompareExchange64(&g_lastHardwareToggleTick, 0, 0);
+        LONG64 lastTick = _InterlockedCompareExchange64(&g_lastHardwareToggleTick, 0, 0);
         ULONGLONG nowTick = GetTickCount64();
 
         if (lastTick != 0) {
@@ -286,7 +292,7 @@ bool TryEnterHardwareToggleCooldown(ULONGLONG cooldownMs) {
             }
         }
 
-        LONG64 previous = InterlockedCompareExchange64(&g_lastHardwareToggleTick, static_cast<LONG64>(nowTick), lastTick);
+        LONG64 previous = _InterlockedCompareExchange64(&g_lastHardwareToggleTick, static_cast<LONG64>(nowTick), lastTick);
         if (previous == lastTick) {
             return true;
         }
@@ -296,7 +302,15 @@ bool TryEnterHardwareToggleCooldown(ULONGLONG cooldownMs) {
 }
 
 void RecordHardwareToggleTime() {
-    InterlockedExchange64(&g_lastHardwareToggleTick, static_cast<LONG64>(GetTickCount64()));
+    // Atomic 64-bit stamp via CAS loop. _InterlockedExchange64 is not exposed to
+    // managed (/clr) x86 code, so exchange is expressed with the available
+    // _InterlockedCompareExchange64 intrinsic. Observably identical to an atomic
+    // exchange here (return value unused): the tick ends up stamped exactly once.
+    LONG64 newTick = static_cast<LONG64>(GetTickCount64());
+    LONG64 observed = _InterlockedCompareExchange64(&g_lastHardwareToggleTick, 0, 0);
+    while (_InterlockedCompareExchange64(&g_lastHardwareToggleTick, newTick, observed) != observed) {
+        observed = _InterlockedCompareExchange64(&g_lastHardwareToggleTick, 0, 0);
+    }
 }
 
 bool SetCameraHardwareStateVerified(std::wstring targetId, bool enable, bool reinitializeOnMismatch) {
