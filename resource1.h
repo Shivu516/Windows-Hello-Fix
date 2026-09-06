@@ -1,6 +1,6 @@
 //{{NO_DEPENDENCIES}}
 // Microsoft Visual C++ generated include file.
-// Used by Windows_Hello_Fix_v2_0_resources.rc
+// Used by Windows_Hello_Fix_v2_1_resources.rc
 //
 #define IDI_ICON1                       114
 

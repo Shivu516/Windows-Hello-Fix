@@ -3,7 +3,7 @@
 **Path:** `src/watchdog/RecoveryLoopFailsafe.h`
 **Type:** C++/CLI header (`#pragma once`)
 **Included by:** `main.cpp` (the only TU that constructs it), `src/watchdog/RecoveryLoopFailsafe.cpp`
-**Build relationship:** `ClInclude` in `Windows_Hello_Fix_v2_0.vcxproj`; filter `Header Files\src\watchdog`.
+**Build relationship:** `ClInclude` in `Windows_Hello_Fix_v2_1.vcxproj`; filter `Header Files\src\watchdog`.
 
 ## Purpose
 

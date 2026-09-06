@@ -12,8 +12,8 @@ Active source tree (inspect with `git ls-files` before assuming more):
 main.cpp
 MyForm.h                 # SHIM: #include "src/core/MyForm.h" (do not delete; preserves include path)
 ProductionUtilities.h    # legacy/unused helper; not part of build flow
-Windows_Hello_Fix_v2_0.{vcxproj,vcxproj.filters,sln}
-Windows_Hello_Fix_v2_0.rc / _resources.rc / resource.h / resource1.h / app.manifest
+Windows_Hello_Fix_v2_1.{vcxproj,vcxproj.filters,sln}
+Windows_Hello_Fix_v2_1.rc / _resources.rc / resource.h / resource1.h / app.manifest
 src/core/
   MyForm.h            # declaration-only: class, CameraDeviceInfo, extern globals, forward decls
   MyForm_Camera.cpp   # native camera pipeline + Disable/Enable/Restore members
@@ -104,9 +104,10 @@ Do not bundle architecture refactor + camera redesign + installer redesign + sta
 - Primary verification config: **Release | x64**.
 - Clean verify:
   ```
-  MSBuild Windows_Hello_Fix_v2_0.vcxproj /p:Configuration=Release /p:Platform=x64 /t:Rebuild
-  ```
-- After source changes: rebuild, report errors **and** warnings (note baseline `C4793` for `TryEnterHardwareToggleCooldown`/`RecordHardwareToggleTime`), identify the output exe (`Windows_Hello_Fix_v2_0.exe`), and confirm you tested the newly built binary. Compilation success alone is not proof.
+  MSBuild Windows_Hello_Fix_v2_1.vcxproj /p:Configuration=Release /p:Platform=x64 /t:Rebuild
+  MSBuild Windows_Hello_Fix_v2_1.vcxproj /p:Configuration=Release /p:Platform=Win32 /t:Rebuild
+   ```
+- After source changes: rebuild, report errors **and** warnings (note baseline `C4793` for `TryEnterHardwareToggleCooldown`/`RecordHardwareToggleTime`), identify the output exes (`Release\Windows_Hello_Fix_v2_1_x86.exe`, `x64\Release\Windows_Hello_Fix_v2_1_x64.exe`), and confirm you tested the newly built binaries. Compilation success alone is not proof.
 
 ## 10. Git safety
 
@@ -167,7 +168,7 @@ avoid combining unrelated workflows unnecessarily.
 
 | Item | Value |
 |---|---|
-| Application | `Windows_Hello_Fix_v2_0.exe` |
+| Application | `Windows_Hello_Fix_v2_1_x64.exe` (x64) / `Windows_Hello_Fix_v2_1_x86.exe` (x86) |
 | Build | `Release` \| `x64` (MSBuild) |
 | Config | `%APPDATA%\Windows Hello Fix\config.txt` |
 | Diagnostic log | `%APPDATA%\Windows Hello Fix\diagnostic.log` |

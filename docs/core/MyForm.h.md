@@ -3,7 +3,7 @@
 **Path:** `src/core/MyForm.h`
 **Type:** C++/CLI header (`#pragma once`)
 **Included by:** `MyForm.h` (root shim), `main.cpp`, and every `MyForm_*.cpp`
-**Build relationship:** `ClInclude` in `Windows_Hello_Fix_v2_0.vcxproj`; filter `Header Files`.
+**Build relationship:** `ClInclude` in `Windows_Hello_Fix_v2_1.vcxproj`; filter `Header Files`.
 
 ## Purpose
 

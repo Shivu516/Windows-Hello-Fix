@@ -3,7 +3,7 @@
 **Path:** `src/watchdog/CameraFailsafe.h`
 **Type:** C++/CLI header (`#pragma once`)
 **Included by:** `src/core/MyForm_Core.cpp` (the only TU that constructs/arms it), `src/watchdog/CameraFailsafe.cpp`
-**Build relationship:** `ClInclude` in `Windows_Hello_Fix_v2_0.vcxproj`; filter `Header Files\src\watchdog`.
+**Build relationship:** `ClInclude` in `Windows_Hello_Fix_v2_1.vcxproj`; filter `Header Files\src\watchdog`.
 
 ## Purpose
 

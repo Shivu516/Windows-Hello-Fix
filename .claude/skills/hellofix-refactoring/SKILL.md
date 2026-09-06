@@ -555,8 +555,8 @@ When adding files:
 Update the actual Visual Studio project:
 
 ```text
-Windows_Hello_Fix_v2_0.vcxproj
-Windows_Hello_Fix_v2_0.vcxproj.filters
+Windows_Hello_Fix_v2_1.vcxproj
+Windows_Hello_Fix_v2_1.vcxproj.filters
 ```
 
 Do not rely on files merely existing in the directory.
