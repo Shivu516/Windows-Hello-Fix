@@ -191,10 +191,12 @@ namespace Windows_Hello_Fix_v2_0 {
             }
         }
 
-        WriteDiagnosticLog(
+        String^ startupOp = NewOperationId(L"STARTUP");
+        bool elevatedNow = IsCurrentProcessElevatedNative();
+        WriteDiagnosticLogEx(DiagLevel::Info, L"STARTUP", L"Startup_Context", startupOp,
             String::Format(
-                L"Startup_Context | Elevated={0} | IntegrityRid={1} | BackgroundArg={2} | Exe={3} | Cwd={4} | Config={5}",
-                IsCurrentProcessElevatedNative() ? L"1" : L"0",
+                L"Elevated={0} | IntegrityRid={1} | BackgroundArg={2} | Exe={3} | Cwd={4} | Config={5}",
+                elevatedNow ? L"1" : L"0",
                 static_cast<Int32>(GetCurrentProcessIntegrityRid()),
                 launchRequestedBackground ? L"1" : L"0",
                 Application::ExecutablePath,
@@ -202,15 +204,21 @@ namespace Windows_Hello_Fix_v2_0 {
                 GetConfigFilePath()
             ),
             L"NoChange",
-            IsCurrentProcessElevatedNative()
+            true
         );
 
         if (IsRestoreCameraCommand(args)) {
             this->ShowInTaskbar = false;
             this->Visible = false;
-            WriteDiagnosticLog(L"Command_EnableCamera_Begin", L"Enabled", true);
+            String^ opId = NewOperationId(L"CMD");
+            WriteDiagnosticLogEx(DiagLevel::Info, L"COMMAND", L"Command_EnableCamera_Begin", opId, L"", L"Enabled", true);
+            ULONGLONG commandStart = GetTickCount64();
             RestoreConfiguredCameraHardware(true);
-            WriteDiagnosticLog(L"Command_EnableCamera_End", L"Enabled", true);
+            std::wstring commandEnableTarget;
+            bool commandEnableVerified = TryGetTargetCameraInstanceId(commandEnableTarget, true) && VerifyCameraHardwareState(commandEnableTarget, false);
+            WriteDiagnosticLogEx(commandEnableVerified ? DiagLevel::Info : DiagLevel::Error, L"COMMAND", L"Command_EnableCamera_End", opId,
+                String::Format(L"DurationMs={0}", (int)(GetTickCount64() - commandStart)),
+                L"Enabled", commandEnableVerified);
             Environment::Exit(0);
             return;
         }
@@ -218,11 +226,16 @@ namespace Windows_Hello_Fix_v2_0 {
         if (IsDisableCameraCommand(args)) {
             this->ShowInTaskbar = false;
             this->Visible = false;
+            String^ opId = NewOperationId(L"CMD");
             std::wstring commandTargetId;
-            WriteDiagnosticLog(L"Command_DisableCamera_Begin", L"Disabled", true);
-            bool commandDisableResult = DisableTargetCameraHardware(true);
+            WriteDiagnosticLogEx(DiagLevel::Info, L"COMMAND", L"Command_DisableCamera_Begin", opId, L"", L"Disabled", true);
+            ULONGLONG commandStart = GetTickCount64();
+            bool commandDisableResult = DisableTargetCameraHardware(true, opId);
             bool commandVerifyResult = TryGetTargetCameraInstanceId(commandTargetId, true) && VerifyCameraHardwareState(commandTargetId, true);
-            WriteDiagnosticLog(L"Command_DisableCamera_End", L"Disabled", commandDisableResult && commandVerifyResult);
+            bool commandPassed = commandDisableResult && commandVerifyResult;
+            WriteDiagnosticLogEx(commandPassed ? DiagLevel::Info : DiagLevel::Error, L"COMMAND", L"Command_DisableCamera_End", opId,
+                String::Format(L"DurationMs={0}", (int)(GetTickCount64() - commandStart)),
+                L"Disabled", commandPassed);
             Environment::Exit(0);
             return;
         }
@@ -232,7 +245,7 @@ namespace Windows_Hello_Fix_v2_0 {
         if (GetLastError() == ERROR_ALREADY_EXISTS) {
             // Background/automatic launches must never wake the running daemon's GUI.
             if (launchRequestedBackground) {
-                WriteDiagnosticLog(L"SingleInstance_BackgroundSilentExit", L"NoChange", true);
+                WriteDiagnosticLogEx(DiagLevel::Info, L"STARTUP", L"SingleInstance_BackgroundSilentExit", L"", L"", L"NoChange", true);
                 Environment::Exit(0);
                 return;
             }
@@ -249,7 +262,7 @@ namespace Windows_Hello_Fix_v2_0 {
             // Normal path: existing process receives wake signal and brings main window back.
             // Avoid showing scary duplicate-instance prompts on expected startup/manual-open races.
             if (wakeSignalSent) {
-                WriteDiagnosticLog(L"SingleInstance_WakeSignalSent", L"NoChange", true);
+                WriteDiagnosticLogEx(DiagLevel::Info, L"STARTUP", L"SingleInstance_WakeSignalSent", L"", L"", L"NoChange", true);
                 Environment::Exit(0);
                 return;
             }
@@ -263,7 +276,7 @@ namespace Windows_Hello_Fix_v2_0 {
             );
 
             if (result == System::Windows::Forms::DialogResult::Yes) {
-                WriteDiagnosticLog(L"SingleInstance_ForceResetRequested", L"NoChange", true);
+                WriteDiagnosticLogEx(DiagLevel::Warn, L"STARTUP", L"SingleInstance_ForceResetRequested", L"", L"", L"NoChange", true);
 
                 // FORCE REVERT CONFIG ON FORCED CLOSED LOOP BREAK
                 String^ ghostDeviceInstance = L"";
@@ -303,8 +316,11 @@ namespace Windows_Hello_Fix_v2_0 {
 
         // Startup recovery must happen before building the dropdown, because a disabled device may not appear as present yet.
         // Use the stronger cycle path here so manual launch can recover a camera that was left disabled by a previous session.
-        WriteDiagnosticLog(L"Startup_RestoreConfiguredCameraHardware", L"Enabled", true);
+        ULONGLONG startupRestoreStart = GetTickCount64();
         RestoreConfiguredCameraHardware(true);
+        WriteDiagnosticLogEx(DiagLevel::Info, L"STARTUP", L"Startup_RestoreConfiguredCameraHardware", startupOp,
+            String::Format(L"DurationMs={0}", (int)(GetTickCount64() - startupRestoreStart)),
+            L"Enabled", true);
 
         // ====== REGISTER FOR MID-LEVEL HARDWARE INTERRUPTS ======
         HWND hWndNative = static_cast<HWND>(this->Handle.ToPointer());
@@ -396,7 +412,9 @@ namespace Windows_Hello_Fix_v2_0 {
 
         // Session-change notifications can fail very early during logon. Retry briefly.
         bool sessionNotificationRegistered = false;
+        int registrationAttempts = 0;
         for (int registrationAttempt = 0; registrationAttempt < 6; registrationAttempt++) {
+            registrationAttempts = registrationAttempt + 1;
             if (WTSRegisterSessionNotification(hWndNative, NOTIFY_FOR_THIS_SESSION)) {
                 sessionNotificationRegistered = true;
                 break;
@@ -405,12 +423,19 @@ namespace Windows_Hello_Fix_v2_0 {
         }
 
         if (sessionNotificationRegistered) {
-            WriteDiagnosticLog(L"WTSRegisterSessionNotification_Success", L"NoChange", true);
+            WriteDiagnosticLogEx(registrationAttempts > 1 ? DiagLevel::Warn : DiagLevel::Info, L"STARTUP",
+                L"WTSRegisterSessionNotification_Success", startupOp,
+                String::Format(L"Attempts={0}", registrationAttempts),
+                L"NoChange", true);
         }
         else {
             DWORD lastError = GetLastError();
-            WriteDiagnosticLog(
-                String::Format(L"WTSRegisterSessionNotification_Failed_LastError={0}", static_cast<Int32>(lastError)),
+            WriteDiagnosticLogEx(DiagLevel::Error, L"STARTUP",
+                L"WTSRegisterSessionNotification_Failed", startupOp,
+                String::Format(L"LastError={0} | ErrText={1} | Attempts={2}",
+                    static_cast<Int32>(lastError),
+                    msclr::interop::marshal_as<String^>(GetLastWin32ErrorText(lastError)),
+                    registrationAttempts),
                 L"NoChange",
                 false
             );
@@ -460,6 +485,16 @@ namespace Windows_Hello_Fix_v2_0 {
     void MyForm::LogFailsafeWithDevice(String^ eventName, std::wstring targetInstanceId, String^ targetState, bool verificationPass)
     {
         WriteDiagnosticLogWithDevice(eventName, targetInstanceId, targetState, verificationPass);
+    }
+
+    void MyForm::LogFailsafeEx(DiagLevel level, String^ category, String^ eventName, String^ opId, String^ details, String^ targetState, bool verificationPass)
+    {
+        WriteDiagnosticLogEx(level, category, eventName, opId, details, targetState, verificationPass);
+    }
+
+    void MyForm::LogFailsafeExWithDevice(DiagLevel level, String^ category, String^ eventName, String^ opId, String^ details, std::wstring targetInstanceId, String^ targetState, bool verificationPass)
+    {
+        WriteDiagnosticLogExWithDevice(level, category, eventName, opId, details, targetInstanceId, targetState, verificationPass);
     }
 
 }

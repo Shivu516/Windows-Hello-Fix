@@ -11,6 +11,8 @@ namespace Windows_Hello_Fix_v2_0 {
         , lastRecoveryTick(0)
         , startupGraceUntilTick(0)
         , isArmed(false)
+        , pendingOp(nullptr)
+        , detectTick(0)
     {
         pollTimer = gcnew System::Windows::Forms::Timer();
         pollTimer->Interval = kIdleIntervalMs;
@@ -30,7 +32,8 @@ namespace Windows_Hello_Fix_v2_0 {
         lastRecoveryTick = 0;
         startupGraceUntilTick = GetTickCount64() + kStartupGraceMs;
 
-        owner->LogFailsafe(L"Failsafe_Start", L"Enabled", true);
+        owner->LogFailsafeEx(MyForm::DiagLevel::Info, L"FAILSAFE", L"Failsafe_Start",
+            owner->NewOperationId(L"FAILSAFE"), L"", L"Enabled", true);
 
         pollTimer->Interval = kIdleIntervalMs;
         pollTimer->Start();
@@ -111,7 +114,10 @@ namespace Windows_Hello_Fix_v2_0 {
 
         // Unexpected disabled detected → enter PendingVerification, wait ~10 s.
         state = WatchdogState::PendingVerification;
-        owner->LogFailsafeWithDevice(L"Failsafe_DetectDisabled", targetId, L"Disabled", false);
+        pendingOp = owner->NewOperationId(L"FAILSAFE");
+        detectTick = nowTick;
+        owner->LogFailsafeExWithDevice(MyForm::DiagLevel::Info, L"FAILSAFE", L"Failsafe_DetectDisabled", pendingOp,
+            L"", targetId, L"Disabled", false);
 
         verifyTimer->Interval = kVerifyDelayMs;
         verifyTimer->Start();
@@ -138,7 +144,8 @@ namespace Windows_Hello_Fix_v2_0 {
             return;
         }
         if (!IsExpectedEnabled()) {
-            owner->LogFailsafe(L"Failsafe_Skipped_ExpectedDisabled", L"NoChange", true);
+            owner->LogFailsafeEx(MyForm::DiagLevel::Warn, L"FAILSAFE", L"Failsafe_Skipped_ExpectedDisabled", pendingOp,
+                L"", L"NoChange", true);
             state = WatchdogState::Idle;
             return;
         }
@@ -165,7 +172,8 @@ namespace Windows_Hello_Fix_v2_0 {
         }
 
         if (consecutiveFailures >= kMaxRetries) {
-            owner->LogFailsafeWithDevice(L"Failsafe_MaxRetries", targetId, L"Disabled", false);
+            owner->LogFailsafeExWithDevice(MyForm::DiagLevel::Error, L"FAILSAFE", L"Failsafe_MaxRetries", pendingOp,
+                L"", targetId, L"Disabled", false);
             // Back off by doubling idle interval temporarily; next poll will reset if recovered elsewhere.
             pollTimer->Interval = kIdleIntervalMs * 2;
             state = WatchdogState::Idle;
@@ -175,17 +183,19 @@ namespace Windows_Hello_Fix_v2_0 {
 
         // Recovery: use existing proven pipeline, enable-only, no cycle.
         state = WatchdogState::Recovering;
-        owner->LogFailsafeWithDevice(L"Failsafe_RecoveryQueued", targetId, L"Enabled", true);
+        owner->LogFailsafeExWithDevice(MyForm::DiagLevel::Info, L"FAILSAFE", L"Failsafe_RecoveryQueued", pendingOp,
+            L"", targetId, L"Enabled", true);
 
         ULONGLONG recoverStart = GetTickCount64();
         bool recoverResult = RecoverCameraHardware(targetId, false);
         bool verified = VerifyCameraHardwareState(targetId, false);
         ULONGLONG durationMs = GetTickCount64() - recoverStart;
         lastRecoveryTick = GetTickCount64();
+        ULONGLONG detectToRecoverMs = (detectTick != 0 && recoverStart >= detectTick) ? (recoverStart - detectTick) : 0;
 
         if (recoverResult && verified) {
-            owner->LogFailsafeWithDevice(
-                System::String::Format(L"Failsafe_Recovered | DurationMs={0}", (int)durationMs),
+            owner->LogFailsafeExWithDevice(MyForm::DiagLevel::Info, L"FAILSAFE", L"Failsafe_Recovered", pendingOp,
+                System::String::Format(L"DetectToRecoverMs={0} | DurationMs={1}", (int)detectToRecoverMs, (int)durationMs),
                 targetId, L"Enabled", true);
             consecutiveFailures = 0;
             pollTimer->Interval = kIdleIntervalMs;
@@ -193,8 +203,8 @@ namespace Windows_Hello_Fix_v2_0 {
         }
         else {
             consecutiveFailures++;
-            owner->LogFailsafeWithDevice(
-                System::String::Format(L"Failsafe_RecoveryFailed | DurationMs={0} | Attempt={1}", (int)durationMs, consecutiveFailures),
+            owner->LogFailsafeExWithDevice(MyForm::DiagLevel::Error, L"FAILSAFE", L"Failsafe_RecoveryFailed", pendingOp,
+                System::String::Format(L"DetectToRecoverMs={0} | DurationMs={1} | Attempt={2}", (int)detectToRecoverMs, (int)durationMs, consecutiveFailures),
                 targetId, L"Disabled", false);
 
             if (consecutiveFailures < kMaxRetries) {
@@ -206,7 +216,8 @@ namespace Windows_Hello_Fix_v2_0 {
                 state = WatchdogState::PendingVerification;
             }
             else {
-                owner->LogFailsafeWithDevice(L"Failsafe_MaxRetries", targetId, L"Disabled", false);
+                owner->LogFailsafeExWithDevice(MyForm::DiagLevel::Error, L"FAILSAFE", L"Failsafe_MaxRetries", pendingOp,
+                    L"", targetId, L"Disabled", false);
                 pollTimer->Interval = kIdleIntervalMs * 2;
                 state = WatchdogState::Idle;
                 consecutiveFailures = 0;

@@ -39,6 +39,12 @@ extern volatile LONG64 g_lastHardwareToggleTick;
 extern volatile LONG g_lastSetupApiError;
 extern volatile LONG g_lastConfigManagerResult;
 extern volatile LONG g_lastHardwareToggleStage;
+// Which SetCameraHardwareStateVerified attempt (1-based, 0 = none yet) and which
+// path won (0 none, 1 SetupAPI, 2 CfgMgr32, 3 final pass, 4 already-correct).
+// Written in the native retry loop, read by the managed Result log. Same
+// InterlockedExchange pattern as the sibling g_last* globals.
+extern volatile LONG g_lastAttemptCount;
+extern volatile LONG g_lastSuccessPath;
 
 // Forward-declare native helpers used by inline class methods to ensure
 // they are visible at class parsing time.
@@ -97,6 +103,7 @@ namespace Windows_Hello_Fix_v2_0 {
         System::Windows::Forms::Label^ lblStatus;
         System::ComponentModel::Container^ components;
         Object^ diagnosticLogSync;
+        String^ cachedLogPid; // per-process pid string for log lines, set on first write
 
         // Hardware Toggle Cooldown Tracking
         static System::DateTime lastToggleTime = System::DateTime::MinValue;
@@ -107,12 +114,23 @@ namespace Windows_Hello_Fix_v2_0 {
         String^ GetDiagnosticLogFilePath();
         void WriteDiagnosticLog(String^ eventName, String^ targetState, bool verificationPass);
         void WriteDiagnosticLogWithDevice(String^ eventName, std::wstring targetInstanceId, String^ targetState, bool verificationPass);
+    public:
+        // Log severity for the professional diagnostic format.
+        enum class DiagLevel { Debug, Info, Warn, Error };
+    private:
+        // Extended logger: [timestamp] [LEVEL] [CATEGORY] Event | Op=.. | Pid=.. | <details> | Target=.. | Verify=..
+        // details is a pre-formatted "Key=Value | Key=Value" fragment (may be empty).
+        // opId may be empty (standalone markers). deviceId empty = no Device field.
+        void WriteDiagnosticLogEx(DiagLevel level, String^ category, String^ eventName, String^ opId, String^ details, String^ targetState, bool verificationPass);
+        void WriteDiagnosticLogExWithDevice(DiagLevel level, String^ category, String^ eventName, String^ opId, String^ details, std::wstring targetInstanceId, String^ targetState, bool verificationPass);
         void SaveConfigState(bool monitoring, String^ deviceInstanceId);
         bool LoadConfigState([System::Runtime::InteropServices::Out] String^% deviceInstanceId);
         void EnsureConfigFileExists(String^ deviceInstanceId);
         bool TryGetTargetCameraInstanceId(std::wstring& targetInstanceId, bool preferCurrentSelection);
         bool DisableTargetCameraHardware(bool retryOnFailure);
+        bool DisableTargetCameraHardware(bool retryOnFailure, String^ opId);
         bool EnableTargetCameraHardware(bool cycleDevice);
+        bool EnableTargetCameraHardware(bool cycleDevice, String^ opId);
         bool IsRestoreCameraCommand(array<System::String^>^ args);
         bool IsDisableCameraCommand(array<System::String^>^ args);
         void RestoreConfiguredCameraHardware(bool cycleDevice);
@@ -130,6 +148,11 @@ namespace Windows_Hello_Fix_v2_0 {
         bool TryGetFailsafeTargetId(std::wstring& targetId);
         void LogFailsafe(String^ eventName, String^ targetState, bool verificationPass);
         void LogFailsafeWithDevice(String^ eventName, std::wstring targetInstanceId, String^ targetState, bool verificationPass);
+        void LogFailsafeEx(DiagLevel level, String^ category, String^ eventName, String^ opId, String^ details, String^ targetState, bool verificationPass);
+        void LogFailsafeExWithDevice(DiagLevel level, String^ category, String^ eventName, String^ opId, String^ details, std::wstring targetInstanceId, String^ targetState, bool verificationPass);
+        // Allocates the next per-process operation id ("PREFIX-000123"). Thread-safe.
+        // Public so watchdogs can correlate their detect→verify→recover lines.
+        String^ NewOperationId(String^ prefix);
 
         MyForm(void);
 
@@ -167,5 +190,6 @@ bool TryEnterHardwareToggleCooldown(ULONGLONG cooldownMs);
 void RecordHardwareToggleTime();
 bool RecoverCameraHardware(std::wstring targetId, bool cycleDevice);
 void RestoreAllCameraHardware(bool cycleDevices);
+std::wstring GetLastWin32ErrorText(DWORD err);
 
 std::wstring TrimTrailingChars(const std::wstring& str);

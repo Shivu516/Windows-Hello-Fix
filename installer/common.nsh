@@ -188,7 +188,8 @@ Var AppMetagenName
   FileWrite $1 "$$trigger = New-ScheduledTaskTrigger -AtLogOn$\r$\n"
   FileWrite $1 "$$principal = New-ScheduledTaskPrincipal -UserId $$user -LogonType Interactive -RunLevel Highest$\r$\n"
   FileWrite $1 "$$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Seconds 0) -Priority 4$\r$\n"
-  FileWrite $1 "Register-ScheduledTask -TaskName 'WindowsHelloFix' -Action $$action -Trigger $$trigger -Principal $$principal -Settings $$settings -Force | Out-Null$\r$\n"
+  FileWrite $1 "$$taskDesc = 'Starts the Windows Hello Fix background camera listener at user logon. The listener disables the IR camera on lock/suspend and re-enables it on unlock/resume.'$\r$\n"
+  FileWrite $1 "Register-ScheduledTask -TaskName 'WindowsHelloFix' -Action $$action -Trigger $$trigger -Principal $$principal -Settings $$settings -Description $$taskDesc -Force | Out-Null$\r$\n"
   FileWrite $1 "function Register-WhfSessionTask([string]$$name, [int]$$stateChange, [string]$$arguments) {$\r$\n"
   FileWrite $1 "  $$service = New-Object -ComObject 'Schedule.Service'$\r$\n"
   FileWrite $1 "  $$service.Connect()$\r$\n"
@@ -214,6 +215,7 @@ Var AppMetagenName
   FileWrite $1 "  $$task.Settings.MultipleInstances = 2$\r$\n"
   FileWrite $1 "  $$task.Settings.ExecutionTimeLimit = 'PT5M'$\r$\n"
   FileWrite $1 "  $$task.Settings.Priority = 4$\r$\n"
+  FileWrite $1 "  if ($$name -eq 'WindowsHelloFix_Lock') { $$task.RegistrationInfo.Description = 'Disables the IR camera when the session locks, as a backup to the background listener. Runs the installed executable with --disable-camera.' }$\r$\n"
   FileWrite $1 "  $$root.RegisterTaskDefinition($$name, $$task, 6, $$null, $$null, 3, $$null) | Out-Null$\r$\n"
   FileWrite $1 "}$\r$\n"
   FileWrite $1 "Register-WhfSessionTask 'WindowsHelloFix_Lock' 7 '--disable-camera'$\r$\n"
@@ -226,12 +228,16 @@ Var AppMetagenName
   FileWrite $1 "$$unlockPrincipal = New-ScheduledTaskPrincipal -UserId $$user -LogonType Interactive -RunLevel Highest$\r$\n"
   FileWrite $1 "$$unlockSettings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Minutes 1) -Priority 4$\r$\n"
   FileWrite $1 "$$unlockTask = New-ScheduledTask -Action $$unlockAction -Trigger $$unlockTrigger -Principal $$unlockPrincipal -Settings $$unlockSettings$\r$\n"
-  FileWrite $1 "$$unlockTask.Description = 'Windows Hello Fix startup/sign-in recovery helper: verifies the IR camera is enabled after sign-in and recovers it if disabled. Not for ordinary Win+L unlock (handled by WndProc).'$\r$\n"
+  FileWrite $1 "$$unlockTask.Description = 'Verifies the IR camera is enabled after sign-in and recovers it if disabled. Startup and sign-in recovery only; ordinary unlock is handled by the background listener.'$\r$\n"
   FileWrite $1 "$$unlockTask.Settings.Hidden = $$true$\r$\n"
   FileWrite $1 "Register-ScheduledTask -TaskName 'WindowsHelloFix_Unlock' -InputObject $$unlockTask -Force | Out-Null$\r$\n"
-  FileWrite $1 "$$cleanupAction = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument '/c break > $\"$APPDATA\Windows Hello Fix\diagnostic.log$\"'$\r$\n"
+  ; Log cleanup is threshold-gated (512 KB): small logs keep their troubleshooting
+  ; history across midnights; only oversized logs are truncated. Same task
+  ; name/schedule/privilege as before; uninstall still deletes the log outright.
+  FileWrite $1 "$$cleanupAction = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument '-NoProfile -WindowStyle Hidden -Command $\"$$log=$$env:APPDATA+'\Windows Hello Fix\diagnostic.log';if((Test-Path -LiteralPath $$log)-and((Get-Item -LiteralPath $$log).Length -gt 524288)){Clear-Content -LiteralPath $$log}$\"'$\r$\n"
   FileWrite $1 "$$cleanupTrigger = New-ScheduledTaskTrigger -Daily -At 00:00$\r$\n"
-  FileWrite $1 "Register-ScheduledTask -TaskName 'WindowsHelloFix_LogCleanup' -Action $$cleanupAction -Trigger $$cleanupTrigger -Principal $$principal -Settings $$settings -Force | Out-Null$\r$\n"
+  FileWrite $1 "$$cleanupDesc = 'Limits the size of the Windows Hello Fix diagnostic log. Truncates the log at midnight only when it exceeds 512 KB.'$\r$\n"
+  FileWrite $1 "Register-ScheduledTask -TaskName 'WindowsHelloFix_LogCleanup' -Action $$cleanupAction -Trigger $$cleanupTrigger -Principal $$principal -Settings $$settings -Description $$cleanupDesc -Force | Out-Null$\r$\n"
   FileClose $1
   nsExec::ExecToLog 'powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "$PLUGINSDIR\RegisterWindowsHelloFixTasks.ps1"'
 

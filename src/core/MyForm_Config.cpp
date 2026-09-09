@@ -27,22 +27,78 @@ namespace Windows_Hello_Fix_v2_0 {
         return Path::Combine(configDirectory, L"diagnostic.log");
     }
 
-    void MyForm::WriteDiagnosticLog(String^ eventName, String^ targetState, bool verificationPass) {
+    // Per-process operation-id counter for log correlation (Op=PREFIX-000123).
+    // 32-bit InterlockedIncrement: available on x86/x64/ARM64, including /clr.
+    // (Native type: namespace-scope static is fine under /clr.)
+    static volatile LONG s_nextOpId = 0;
+
+    static String^ DiagLevelText(MyForm::DiagLevel level) {
+        switch (level) {
+        case MyForm::DiagLevel::Debug: return L"DEBUG";
+        case MyForm::DiagLevel::Warn:  return L"WARN ";
+        case MyForm::DiagLevel::Error: return L"ERROR";
+        default:                       return L"INFO ";
+        }
+    }
+
+    static String^ InferCategory(String^ eventName) {
+        if (eventName->StartsWith(L"Startup_") || eventName->StartsWith(L"SingleInstance_") || eventName->StartsWith(L"WTS")) return L"STARTUP";
+        if (eventName->StartsWith(L"Command_")) return L"COMMAND";
+        if (eventName->StartsWith(L"SessionLock_") || eventName->StartsWith(L"SessionUnlock_")) return L"LOCK";
+        if (eventName->StartsWith(L"Session")) return L"SESSION";
+        if (eventName->StartsWith(L"Power")) return L"POWER";
+        if (eventName->StartsWith(L"SystemEnd_")) return L"SYSTEM";
+        if (eventName->StartsWith(L"Disable") || eventName->StartsWith(L"Enable")) return L"CAMERA";
+        if (eventName->StartsWith(L"Failsafe_") || eventName->StartsWith(L"RecoveryLoop_")) return L"FAILSAFE";
+        return L"SYSTEM";
+    }
+
+    static MyForm::DiagLevel InferLevel(String^ eventName) {
+        if (eventName->IndexOf(L"Fail") >= 0 || eventName->IndexOf(L"NoTarget") >= 0 ||
+            eventName->IndexOf(L"MaxRetries") >= 0 || eventName->IndexOf(L"MaxAttempts") >= 0) {
+            return MyForm::DiagLevel::Error;
+        }
+        return MyForm::DiagLevel::Info;
+    }
+
+    void MyForm::WriteDiagnosticLogEx(DiagLevel level, String^ category, String^ eventName, String^ opId, String^ details, String^ targetState, bool verificationPass) {
         System::Threading::Monitor::Enter(diagnosticLogSync);
         try {
-            String^ logPath = GetDiagnosticLogFilePath();
-            StreamWriter^ sw = gcnew StreamWriter(logPath, true);
-            String^ timestamp = DateTime::Now.ToString(L"yyyy-MM-dd HH:mm:ss.fff");
-            sw->WriteLine(
-                String::Format(
-                    L"{0} | Event={1} | Target={2} | Verify={3}",
-                    timestamp,
-                    eventName,
-                    targetState,
-                    verificationPass ? L"PASS" : L"FAIL"
-                )
+            if (cachedLogPid == nullptr) {
+                cachedLogPid = System::Diagnostics::Process::GetCurrentProcess()->Id.ToString();
+            }
+            String^ cat = (category != nullptr && category->Length > 0) ? category : InferCategory(eventName);
+            if (cat->Length < 8) cat = cat->PadRight(8);
+            else if (cat->Length > 8) cat = cat->Substring(0, 8);
+            String^ line = String::Format(
+                L"[{0}] [{1}] [{2}] {3}",
+                DateTime::Now.ToString(L"yyyy-MM-dd HH:mm:ss.fff"),
+                DiagLevelText(level),
+                cat,
+                eventName
             );
-            sw->Close();
+            if (opId != nullptr && opId->Length > 0) line += L" | Op=" + opId;
+            line += L" | Pid=" + cachedLogPid;
+            if (details != nullptr && details->Length > 0) line += L" | " + details;
+            line += String::Format(
+                L" | Target={0} | Verify={1}",
+                targetState,
+                verificationPass ? L"PASS" : L"FAIL"
+            );
+            String^ logPath = GetDiagnosticLogFilePath();
+            // Small open-retry: a sibling worker process may hold the file briefly.
+            for (int attempt = 0; attempt < 3; attempt++) {
+                try {
+                    StreamWriter^ sw = gcnew StreamWriter(logPath, true);
+                    sw->WriteLine(line);
+                    sw->Close();
+                    break;
+                }
+                catch (...) {
+                    if (attempt == 2) break;
+                    System::Threading::Thread::Sleep(50);
+                }
+            }
         }
         catch (...) {}
         finally {
@@ -50,13 +106,25 @@ namespace Windows_Hello_Fix_v2_0 {
         }
     }
 
-    void MyForm::WriteDiagnosticLogWithDevice(String^ eventName, std::wstring targetInstanceId, String^ targetState, bool verificationPass) {
+    void MyForm::WriteDiagnosticLogExWithDevice(DiagLevel level, String^ category, String^ eventName, String^ opId, String^ details, std::wstring targetInstanceId, String^ targetState, bool verificationPass) {
         String^ deviceId = msclr::interop::marshal_as<String^>(targetInstanceId);
-        WriteDiagnosticLog(
-            eventName + L" | Device=" + deviceId,
-            targetState,
-            verificationPass
-        );
+        String^ fullDetails = (details != nullptr && details->Length > 0)
+            ? (L"Device=" + deviceId + L" | " + details)
+            : (L"Device=" + deviceId);
+        WriteDiagnosticLogEx(level, category, eventName, opId, fullDetails, targetState, verificationPass);
+    }
+
+    String^ MyForm::NewOperationId(String^ prefix) {
+        LONG id = ::InterlockedIncrement(&s_nextOpId);
+        return String::Format(L"{0}-{1:D6}", prefix, id);
+    }
+
+    void MyForm::WriteDiagnosticLog(String^ eventName, String^ targetState, bool verificationPass) {
+        WriteDiagnosticLogEx(InferLevel(eventName), InferCategory(eventName), eventName, L"", L"", targetState, verificationPass);
+    }
+
+    void MyForm::WriteDiagnosticLogWithDevice(String^ eventName, std::wstring targetInstanceId, String^ targetState, bool verificationPass) {
+        WriteDiagnosticLogExWithDevice(InferLevel(eventName), InferCategory(eventName), eventName, L"", L"", targetInstanceId, targetState, verificationPass);
     }
 
     void MyForm::SaveConfigState(bool monitoring, String^ deviceInstanceId) {

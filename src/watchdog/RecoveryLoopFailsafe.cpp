@@ -9,6 +9,8 @@ namespace Windows_Hello_Fix_v2_0 {
         , consecutiveFailures(0)
         , lastRecoveryTick(0)
         , isArmed(false)
+        , pendingOp(nullptr)
+        , detectTick(0)
     {
         pollTimer = gcnew System::Windows::Forms::Timer();
         pollTimer->Interval = kPollIntervalMs;
@@ -44,7 +46,7 @@ namespace Windows_Hello_Fix_v2_0 {
         consecutiveFailures = 0;
         lastRecoveryTick = 0;
 
-        try { owner->LogFailsafe(L"RecoveryLoop_Start", L"Enabled", true); } catch (...) {}
+        try { owner->LogFailsafeEx(MyForm::DiagLevel::Info, L"FAILSAFE", L"RecoveryLoop_Start", owner->NewOperationId(L"RECLOOP"), L"", L"Enabled", true); } catch (...) {}
 
         pollTimer->Interval = kPollIntervalMs;
         pollTimer->Start();
@@ -108,7 +110,9 @@ namespace Windows_Hello_Fix_v2_0 {
         }
 
         state = RecoveryState::PendingVerification;
-        try { owner->LogFailsafeWithDevice(L"RecoveryLoop_DisabledDetected", targetId, L"Disabled", false); } catch (...) {}
+        pendingOp = owner->NewOperationId(L"RECLOOP");
+        detectTick = nowTick;
+        try { owner->LogFailsafeExWithDevice(MyForm::DiagLevel::Info, L"FAILSAFE", L"RecoveryLoop_DisabledDetected", pendingOp, L"", targetId, L"Disabled", false); } catch (...) {}
 
         retryTimer->Interval = kRetryIntervalMs;
         retryTimer->Start();
@@ -119,7 +123,7 @@ namespace Windows_Hello_Fix_v2_0 {
         startupTimer->Stop();
         if (!isArmed) return;
 
-        try { owner->LogFailsafe(L"RecoveryLoop_StartupVerification", L"NoChange", true); } catch (...) {}
+        try { owner->LogFailsafeEx(MyForm::DiagLevel::Debug, L"FAILSAFE", L"RecoveryLoop_StartupVerification", L"", L"", L"NoChange", true); } catch (...) {}
 
         RequestRecoveryCheck(L"StartupVerification");
     }
@@ -146,7 +150,9 @@ namespace Windows_Hello_Fix_v2_0 {
         }
 
         state = RecoveryState::PendingVerification;
-        try { owner->LogFailsafeWithDevice(L"RecoveryLoop_DisabledDetected", targetId, L"Disabled", false); } catch (...) {}
+        pendingOp = owner->NewOperationId(L"RECLOOP");
+        detectTick = nowTick;
+        try { owner->LogFailsafeExWithDevice(MyForm::DiagLevel::Info, L"FAILSAFE", L"RecoveryLoop_DisabledDetected", pendingOp, L"", targetId, L"Disabled", false); } catch (...) {}
 
         retryTimer->Interval = kRetryIntervalMs;
         retryTimer->Start();
@@ -161,17 +167,17 @@ namespace Windows_Hello_Fix_v2_0 {
         ULONGLONG nowTick = GetTickCount64();
 
         if (owner != nullptr && owner->IsSystemEndingActive()) {
-            try { owner->LogFailsafe(L"RecoveryLoop_SkippedShutdown", L"NoChange", true); } catch (...) {}
+            try { owner->LogFailsafeEx(MyForm::DiagLevel::Warn, L"FAILSAFE", L"RecoveryLoop_SkippedShutdown", pendingOp, L"", L"NoChange", true); } catch (...) {}
             state = RecoveryState::Idle;
             return;
         }
         if (owner != nullptr && !owner->IsMonitoringActive()) {
-            try { owner->LogFailsafe(L"RecoveryLoop_SkippedMonitoringOff", L"NoChange", true); } catch (...) {}
+            try { owner->LogFailsafeEx(MyForm::DiagLevel::Warn, L"FAILSAFE", L"RecoveryLoop_SkippedMonitoringOff", pendingOp, L"", L"NoChange", true); } catch (...) {}
             state = RecoveryState::Idle;
             return;
         }
         if (!IsExpectedEnabled()) {
-            try { owner->LogFailsafe(L"RecoveryLoop_SkippedExpectedDisabled", L"NoChange", true); } catch (...) {}
+            try { owner->LogFailsafeEx(MyForm::DiagLevel::Warn, L"FAILSAFE", L"RecoveryLoop_SkippedExpectedDisabled", pendingOp, L"", L"NoChange", true); } catch (...) {}
             state = RecoveryState::Idle;
             return;
         }
@@ -191,25 +197,26 @@ namespace Windows_Hello_Fix_v2_0 {
         }
 
         if (consecutiveFailures >= kMaxRetries) {
-            try { owner->LogFailsafeWithDevice(L"RecoveryLoop_MaxAttempts", targetId, L"Disabled", false); } catch (...) {}
+            try { owner->LogFailsafeExWithDevice(MyForm::DiagLevel::Error, L"FAILSAFE", L"RecoveryLoop_MaxAttempts", pendingOp, L"", targetId, L"Disabled", false); } catch (...) {}
             state = RecoveryState::Idle;
             consecutiveFailures = 0;
             return;
         }
 
         state = RecoveryState::Recovering;
-        try { owner->LogFailsafeWithDevice(L"RecoveryLoop_EnableAttempt", targetId, L"Enabled", true); } catch (...) {}
+        try { owner->LogFailsafeExWithDevice(MyForm::DiagLevel::Info, L"FAILSAFE", L"RecoveryLoop_EnableAttempt", pendingOp, L"", targetId, L"Enabled", true); } catch (...) {}
 
         ULONGLONG recoverStart = GetTickCount64();
         bool recoverResult = RecoverCameraHardware(targetId, false);
         bool verified = VerifyCameraHardwareState(targetId, false);
         ULONGLONG durationMs = GetTickCount64() - recoverStart;
         lastRecoveryTick = GetTickCount64();
+        ULONGLONG detectToRecoverMs = (detectTick != 0 && recoverStart >= detectTick) ? (recoverStart - detectTick) : 0;
 
         if (recoverResult && verified) {
             try {
-                owner->LogFailsafeWithDevice(
-                    System::String::Format(L"RecoveryLoop_Recovered | DurationMs={0}", (int)durationMs),
+                owner->LogFailsafeExWithDevice(MyForm::DiagLevel::Info, L"FAILSAFE", L"RecoveryLoop_Recovered", pendingOp,
+                    System::String::Format(L"DetectToRecoverMs={0} | DurationMs={1}", (int)detectToRecoverMs, (int)durationMs),
                     targetId, L"Enabled", true);
             } catch (...) {}
             consecutiveFailures = 0;
@@ -217,8 +224,8 @@ namespace Windows_Hello_Fix_v2_0 {
         } else {
             consecutiveFailures++;
             try {
-                owner->LogFailsafeWithDevice(
-                    System::String::Format(L"RecoveryLoop_RecoveryFailed | DurationMs={0} | Attempt={1}", (int)durationMs, consecutiveFailures),
+                owner->LogFailsafeExWithDevice(MyForm::DiagLevel::Error, L"FAILSAFE", L"RecoveryLoop_RecoveryFailed", pendingOp,
+                    System::String::Format(L"DetectToRecoverMs={0} | DurationMs={1} | Attempt={2}", (int)detectToRecoverMs, (int)durationMs, consecutiveFailures),
                     targetId, L"Disabled", false);
             } catch (...) {}
 
@@ -227,7 +234,7 @@ namespace Windows_Hello_Fix_v2_0 {
                 retryTimer->Start();
                 state = RecoveryState::PendingVerification;
             } else {
-                try { owner->LogFailsafeWithDevice(L"RecoveryLoop_MaxAttempts", targetId, L"Disabled", false); } catch (...) {}
+                try { owner->LogFailsafeExWithDevice(MyForm::DiagLevel::Error, L"FAILSAFE", L"RecoveryLoop_MaxAttempts", pendingOp, L"", targetId, L"Disabled", false); } catch (...) {}
                 state = RecoveryState::Idle;
                 consecutiveFailures = 0;
             }

@@ -34,6 +34,10 @@ namespace Windows_Hello_Fix_v2_0 {
         ULONGLONG lastRecoveryTick;
         ULONGLONG startupGraceUntilTick;
         bool isArmed;
+        // Log correlation for the currently pending detect→verify→recover
+        // operation (single pending slot; timers serialize on the UI thread).
+        System::String^ pendingOp;
+        ULONGLONG detectTick;
 
         // Timing constants — see docs/Plan.md §7-8, §13, §16-17
         static const int kIdleIntervalMs = 90000;        // 90 s idle poll

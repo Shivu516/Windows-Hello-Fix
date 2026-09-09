@@ -35,6 +35,10 @@ namespace Windows_Hello_Fix_v2_0 {
         int consecutiveFailures;
         ULONGLONG lastRecoveryTick;
         bool isArmed;
+        // Log correlation for the currently pending detect→verify→recover
+        // operation (single pending slot; timers serialize on the UI thread).
+        System::String^ pendingOp;
+        ULONGLONG detectTick;
 
         // Timing — per docs/Plan.md §12-14 (5s startup, 30s poll, 5s retry, 3 attempts, 30s cooldown)
         static const int kStartupVerifyMs = 5000;   // 5 s after Arm

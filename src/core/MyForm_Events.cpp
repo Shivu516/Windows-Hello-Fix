@@ -13,10 +13,15 @@ namespace Windows_Hello_Fix_v2_0 {
         // 1. System Shutdown / Logoff
         if (m.Msg == 0x0016 || m.Msg == 0x0011) {
             isSystemEnding = true;
-            WriteDiagnosticLog(L"SystemEnd_Begin", L"Disabled", true);
+            String^ opId = NewOperationId(L"SYSEND");
+            WriteDiagnosticLogEx(DiagLevel::Info, L"SYSTEM", L"SystemEnd_Begin", opId, L"", L"Disabled", true);
             if (isMonitoring) {
-                bool shutdownDisableResult = DisableTargetCameraHardware(true);
-                WriteDiagnosticLog(L"SystemEnd_Disable", L"Disabled", shutdownDisableResult);
+                ULONGLONG actionStart = GetTickCount64();
+                bool shutdownDisableResult = DisableTargetCameraHardware(true, opId);
+                WriteDiagnosticLogEx(shutdownDisableResult ? DiagLevel::Info : DiagLevel::Error, L"SYSTEM", L"SystemEnd_Disable", opId,
+                    String::Format(L"TriggerToStart={0}ms | TriggerToComplete={1}ms",
+                        (int)(actionStart - nowTick), (int)(GetTickCount64() - nowTick)),
+                    L"Disabled", shutdownDisableResult);
             }
             WTSUnRegisterSessionNotification(static_cast<HWND>(this->Handle.ToPointer()));
         }
@@ -26,7 +31,9 @@ namespace Windows_Hello_Fix_v2_0 {
             int powerEvent = m.WParam.ToInt32();
 
             if (lastPowerEventCode == powerEvent && (nowTick - lastPowerEventTick) < 1500) {
-                WriteDiagnosticLog(L"PowerEvent_DedupIgnored", L"NoChange", true);
+                WriteDiagnosticLogEx(DiagLevel::Debug, L"POWER", L"PowerEvent_DedupIgnored", L"",
+                    String::Format(L"Code={0} | ElapsedSinceLast={1}ms", powerEvent, (int)(nowTick - lastPowerEventTick)),
+                    L"NoChange", true);
                 Form::WndProc(m);
                 return;
             }
@@ -45,7 +52,8 @@ namespace Windows_Hello_Fix_v2_0 {
 
                             // Lid close event or physical Power button action caught instantly!
                             if (!IsEqualGUID(pSetting->PowerSetting, lidGuid) && !IsEqualGUID(pSetting->PowerSetting, buttonGuid)) {
-                                WriteDiagnosticLog(L"PowerSetting_IrrelevantGuid", L"NoChange", true);
+                                WriteDiagnosticLogEx(DiagLevel::Debug, L"POWER", L"PowerSetting_IrrelevantGuid", L"",
+                                    String::Format(L"Code={0}", powerEvent), L"NoChange", true);
                                 Form::WndProc(m);
                                 return;
                             }
@@ -53,9 +61,14 @@ namespace Windows_Hello_Fix_v2_0 {
                     }
 
                     // Enforce structural hardware state lock
+                    String^ opId = NewOperationId(L"POWER");
                     isAlreadyDisabled = true;
-                    bool powerDisableResult = DisableTargetCameraHardware(true);
-                    WriteDiagnosticLog(L"PowerEvent_Disable", L"Disabled", powerDisableResult);
+                    ULONGLONG actionStart = GetTickCount64();
+                    bool powerDisableResult = DisableTargetCameraHardware(true, opId);
+                    WriteDiagnosticLogEx(powerDisableResult ? DiagLevel::Info : DiagLevel::Error, L"POWER", L"PowerEvent_Disable", opId,
+                        String::Format(L"Code={0} | TriggerToStart={1}ms | TriggerToComplete={2}ms",
+                            powerEvent, (int)(actionStart - nowTick), (int)(GetTickCount64() - nowTick)),
+                        L"Disabled", powerDisableResult);
 
                     // CRITICAL TIME WINDOW BYPASS (500ms safety window)
                     ::Sleep(500);
@@ -64,10 +77,15 @@ namespace Windows_Hello_Fix_v2_0 {
             // System Waking Up (PBT_APMRESUMESUSPEND = 0x0007 or PBT_APMRESUMEAUTOMATIC = 0x0012)
             else if (powerEvent == 0x0007 || powerEvent == 0x0012) {
                 if (isMonitoring) {
+                    String^ opId = NewOperationId(L"POWER");
                     // Force a brief delay to allow systemic device trees to rebuild
                     System::Threading::Thread::Sleep(1000);
-                    bool powerEnableResult = EnableTargetCameraHardware(false);
-                    WriteDiagnosticLog(L"PowerEvent_Enable", L"Enabled", powerEnableResult);
+                    ULONGLONG actionStart = GetTickCount64();
+                    bool powerEnableResult = EnableTargetCameraHardware(false, opId);
+                    WriteDiagnosticLogEx(powerEnableResult ? DiagLevel::Info : DiagLevel::Error, L"POWER", L"PowerEvent_Enable", opId,
+                        String::Format(L"Code={0} | TriggerToStart={1}ms | TriggerToComplete={2}ms",
+                            powerEvent, (int)(actionStart - nowTick), (int)(GetTickCount64() - nowTick)),
+                        L"Enabled", powerEnableResult);
                     isAlreadyDisabled = false; // Release lock on verified wake
                 }
             }
@@ -77,14 +95,16 @@ namespace Windows_Hello_Fix_v2_0 {
         else if (m.Msg == WM_WTSSESSION_CHANGE) {
             int sessionEvent = m.WParam.ToInt32();
 
-            WriteDiagnosticLog(
-                String::Format(L"SessionEvent_Received_Code={0}", sessionEvent),
-                isMonitoring ? L"ActiveMonitoring" : L"MonitoringOff",
-                true
-            );
+            WriteDiagnosticLogEx(DiagLevel::Debug, L"SESSION", L"SessionEvent_Received", L"",
+                String::Format(L"Code={0} | Monitoring={1}",
+                    sessionEvent, isMonitoring ? L"Active" : L"Off"),
+                L"NoChange", true);
 
             if (lastSessionEventCode == sessionEvent && (nowTick - lastSessionEventTick) < 1500) {
-                WriteDiagnosticLog(L"SessionEvent_DedupIgnored", L"NoChange", true);
+                WriteDiagnosticLogEx(DiagLevel::Debug, L"SESSION", L"SessionEvent_DedupIgnored", L"",
+                    String::Format(L"Code={0} | LastCode={1} | ElapsedSinceLast={2}ms",
+                        sessionEvent, lastSessionEventCode, (int)(nowTick - lastSessionEventTick)),
+                    L"NoChange", true);
                 Form::WndProc(m);
                 return;
             }
@@ -92,15 +112,26 @@ namespace Windows_Hello_Fix_v2_0 {
             lastSessionEventTick = nowTick;
 
             if (!isMonitoring) {
-                WriteDiagnosticLog(L"SessionEvent_Ignored_MonitoringOff", L"NoChange", true);
+                WriteDiagnosticLogEx(DiagLevel::Debug, L"SESSION", L"SessionEvent_Ignored_MonitoringOff", L"",
+                    String::Format(L"Code={0}", sessionEvent), L"NoChange", true);
             }
             else if (sessionEvent == WTS_SESSION_LOCK) {
-                bool lockDisableResult = DisableTargetCameraHardware(true);
-                WriteDiagnosticLog(L"SessionLock_Disable", L"Disabled", lockDisableResult);
+                String^ opId = NewOperationId(L"LOCK");
+                ULONGLONG actionStart = GetTickCount64();
+                bool lockDisableResult = DisableTargetCameraHardware(true, opId);
+                WriteDiagnosticLogEx(lockDisableResult ? DiagLevel::Info : DiagLevel::Error, L"LOCK", L"SessionLock_Disable", opId,
+                    String::Format(L"TriggerToStart={0}ms | TriggerToComplete={1}ms",
+                        (int)(actionStart - nowTick), (int)(GetTickCount64() - nowTick)),
+                    L"Disabled", lockDisableResult);
             }
             else if (sessionEvent == WTS_SESSION_UNLOCK) {
-                bool unlockEnableResult = EnableTargetCameraHardware(false);
-                WriteDiagnosticLog(L"SessionUnlock_Enable", L"Enabled", unlockEnableResult);
+                String^ opId = NewOperationId(L"UNLOCK");
+                ULONGLONG actionStart = GetTickCount64();
+                bool unlockEnableResult = EnableTargetCameraHardware(false, opId);
+                WriteDiagnosticLogEx(unlockEnableResult ? DiagLevel::Info : DiagLevel::Error, L"LOCK", L"SessionUnlock_Enable", opId,
+                    String::Format(L"TriggerToStart={0}ms | TriggerToComplete={1}ms",
+                        (int)(actionStart - nowTick), (int)(GetTickCount64() - nowTick)),
+                    L"Enabled", unlockEnableResult);
             }
         }
 

@@ -10,6 +10,8 @@ volatile LONG64 g_lastHardwareToggleTick = 0;
 volatile LONG g_lastSetupApiError = ERROR_SUCCESS;
 volatile LONG g_lastConfigManagerResult = CR_SUCCESS;
 volatile LONG g_lastHardwareToggleStage = 0;
+volatile LONG g_lastAttemptCount = 0;
+volatile LONG g_lastSuccessPath = 0;
 
 // ====== NATIVE FUNCTION IMPLEMENTATIONS ======
 
@@ -20,6 +22,32 @@ std::wstring TrimTrailingChars(const std::wstring& str) {
         sanitized.pop_back();
     }
     return sanitized;
+}
+
+// Human-readable text for a Win32 error code (log-only; never affects control flow).
+// Returns L"Success" for ERROR_SUCCESS, L"Unknown error <n>" when FormatMessage
+// has no string (e.g. CONFIGRET codes, which are not Win32 errors).
+std::wstring GetLastWin32ErrorText(DWORD err) {
+    if (err == ERROR_SUCCESS) {
+        return L"Success";
+    }
+    LPWSTR buf = NULL;
+    DWORD n = FormatMessageW(
+        FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
+        NULL, err, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), (LPWSTR)&buf, 0, NULL);
+    std::wstring text;
+    if (n > 0 && buf != NULL) {
+        text = TrimTrailingChars(std::wstring(buf, n));
+    }
+    if (buf != NULL) {
+        LocalFree(buf);
+    }
+    if (text.empty()) {
+        wchar_t fallback[64];
+        swprintf_s(fallback, L"Unknown error %lu", err);
+        text = fallback;
+    }
+    return text;
 }
 
 bool IsCurrentProcessElevatedNative() {
@@ -320,21 +348,29 @@ bool SetCameraHardwareStateVerified(std::wstring targetId, bool enable, bool rei
 
     bool shouldBeDisabled = !enable;
 
+    // Attribution for the managed Result log (log-only; no control-flow effect).
+    // Attempt = 1-based loop iteration; Path: 1 SetupAPI, 2 CfgMgr32, 3 final pass.
+    InterlockedExchange(&g_lastAttemptCount, 0);
+    InterlockedExchange(&g_lastSuccessPath, 0);
+
     // Check-before-change: if already in target state, skip hardware command churn.
     if (VerifyCameraHardwareState(targetId, shouldBeDisabled)) {
         return true;
     }
 
     for (int attempt = 0; attempt < 3; attempt++) {
+        InterlockedExchange(&g_lastAttemptCount, attempt + 1);
         ToggleCameraHardware(targetId, enable);
 
         if (VerifyCameraHardwareState(targetId, shouldBeDisabled)) {
+            InterlockedExchange(&g_lastSuccessPath, 1);
             RecordHardwareToggleTime();
             return true;
         }
 
         ToggleCameraHardwareCfgMgr(targetId, enable);
         if (VerifyCameraHardwareState(targetId, shouldBeDisabled)) {
+            InterlockedExchange(&g_lastSuccessPath, 2);
             RecordHardwareToggleTime();
             return true;
         }
@@ -352,6 +388,7 @@ bool SetCameraHardwareStateVerified(std::wstring targetId, bool enable, bool rei
     ToggleCameraHardware(targetId, enable);
     bool verified = VerifyCameraHardwareState(targetId, shouldBeDisabled);
     if (verified) {
+        InterlockedExchange(&g_lastSuccessPath, 3);
         RecordHardwareToggleTime();
     }
     return verified;
@@ -388,11 +425,25 @@ void RestoreAllCameraHardware(bool cycleDevices) {
 
 namespace Windows_Hello_Fix_v2_0 {
 
+    static String^ SuccessPathText(LONG pathCode) {
+        if (pathCode == 1) return L"SetupAPI";
+        if (pathCode == 2) return L"CfgMgr";
+        if (pathCode == 3) return L"Final";
+        return L"None";
+    }
+
     bool MyForm::DisableTargetCameraHardware(bool retryOnFailure)
     {
+        return DisableTargetCameraHardware(retryOnFailure, nullptr);
+    }
+
+    bool MyForm::DisableTargetCameraHardware(bool retryOnFailure, String^ opId)
+    {
+        ULONGLONG opStart = GetTickCount64();
         std::wstring targetId;
         if (!TryGetTargetCameraInstanceId(targetId, true)) {
-            WriteDiagnosticLog(L"DisableTargetCameraHardware_NoTarget", L"Disabled", false);
+            WriteDiagnosticLogEx(DiagLevel::Error, L"CAMERA", L"DisableTargetCameraHardware_NoTarget", opId,
+                String::Format(L"DurationMs={0}", (int)(GetTickCount64() - opStart)), L"Disabled", false);
             return false;
         }
 
@@ -401,34 +452,49 @@ namespace Windows_Hello_Fix_v2_0 {
         bool alreadyDisabled = false;
         if (GetCameraHardwareDisabledState(targetId, alreadyDisabled) && alreadyDisabled) {
             cameraExpectedDisabled = true;
-            WriteDiagnosticLogWithDevice(L"DisableTargetCameraHardware_AlreadyDisabled", targetId, L"Disabled", true);
+            WriteDiagnosticLogExWithDevice(DiagLevel::Info, L"CAMERA", L"DisableTargetCameraHardware_AlreadyDisabled", opId,
+                L"Path=Already", targetId, L"Disabled", true);
             return true;
         }
 
         bool result = SetCameraHardwareStateVerified(targetId, false, retryOnFailure);
         bool verified = VerifyCameraHardwareState(targetId, true);
         cameraExpectedDisabled = result;
-        WriteDiagnosticLogWithDevice(
+        LONG setupErr = InterlockedCompareExchange(&g_lastSetupApiError, 0, 0);
+        bool passed = result && verified;
+        WriteDiagnosticLogExWithDevice(passed ? DiagLevel::Info : DiagLevel::Error, L"CAMERA",
+            L"DisableTargetCameraHardware_Result", opId,
             String::Format(
-                L"DisableTargetCameraHardware_Result | Elevated={0} | IntegrityRid={1} | SetupErr={2} | CfgMgr={3} | Stage={4}",
+                L"DurationMs={0} | Attempt={1} | Path={2} | Elevated={3} | IntegrityRid={4} | SetupErr={5} | CfgMgr={6} | Stage={7} | ErrText={8}",
+                (int)(GetTickCount64() - opStart),
+                static_cast<Int32>(InterlockedCompareExchange(&g_lastAttemptCount, 0, 0)),
+                SuccessPathText(InterlockedCompareExchange(&g_lastSuccessPath, 0, 0)),
                 IsCurrentProcessElevatedNative() ? L"1" : L"0",
                 static_cast<Int32>(GetCurrentProcessIntegrityRid()),
-                static_cast<Int32>(InterlockedCompareExchange(&g_lastSetupApiError, 0, 0)),
+                static_cast<Int32>(setupErr),
                 static_cast<Int32>(InterlockedCompareExchange(&g_lastConfigManagerResult, 0, 0)),
-                static_cast<Int32>(InterlockedCompareExchange(&g_lastHardwareToggleStage, 0, 0))
+                static_cast<Int32>(InterlockedCompareExchange(&g_lastHardwareToggleStage, 0, 0)),
+                msclr::interop::marshal_as<String^>(GetLastWin32ErrorText(static_cast<DWORD>(setupErr)))
             ),
             targetId,
             L"Disabled",
-            result && verified
+            passed
         );
-        return result && verified;
+        return passed;
     }
 
     bool MyForm::EnableTargetCameraHardware(bool cycleDevice)
     {
+        return EnableTargetCameraHardware(cycleDevice, nullptr);
+    }
+
+    bool MyForm::EnableTargetCameraHardware(bool cycleDevice, String^ opId)
+    {
+        ULONGLONG opStart = GetTickCount64();
         std::wstring targetId;
         if (!TryGetTargetCameraInstanceId(targetId, true)) {
-            WriteDiagnosticLog(L"EnableTargetCameraHardware_NoTarget", L"Enabled", false);
+            WriteDiagnosticLogEx(DiagLevel::Error, L"CAMERA", L"EnableTargetCameraHardware_NoTarget", opId,
+                String::Format(L"DurationMs={0}", (int)(GetTickCount64() - opStart)), L"Enabled", false);
             return false;
         }
 
@@ -437,27 +503,35 @@ namespace Windows_Hello_Fix_v2_0 {
         bool disabledNow = false;
         if (GetCameraHardwareDisabledState(targetId, disabledNow) && !disabledNow) {
             cameraExpectedDisabled = false;
-            WriteDiagnosticLogWithDevice(L"EnableTargetCameraHardware_AlreadyEnabled", targetId, L"Enabled", true);
+            WriteDiagnosticLogExWithDevice(DiagLevel::Info, L"CAMERA", L"EnableTargetCameraHardware_AlreadyEnabled", opId,
+                L"Path=Already", targetId, L"Enabled", true);
             return true;
         }
 
         bool result = RecoverCameraHardware(targetId, cycleDevice);
         bool verified = VerifyCameraHardwareState(targetId, false);
         cameraExpectedDisabled = !result;
-        WriteDiagnosticLogWithDevice(
+        LONG setupErr = InterlockedCompareExchange(&g_lastSetupApiError, 0, 0);
+        bool passed = result && verified;
+        WriteDiagnosticLogExWithDevice(passed ? DiagLevel::Info : DiagLevel::Error, L"CAMERA",
+            L"EnableTargetCameraHardware_Result", opId,
             String::Format(
-                L"EnableTargetCameraHardware_Result | Elevated={0} | IntegrityRid={1} | SetupErr={2} | CfgMgr={3} | Stage={4}",
+                L"DurationMs={0} | Attempt={1} | Path={2} | Elevated={3} | IntegrityRid={4} | SetupErr={5} | CfgMgr={6} | Stage={7} | ErrText={8}",
+                (int)(GetTickCount64() - opStart),
+                static_cast<Int32>(InterlockedCompareExchange(&g_lastAttemptCount, 0, 0)),
+                SuccessPathText(InterlockedCompareExchange(&g_lastSuccessPath, 0, 0)),
                 IsCurrentProcessElevatedNative() ? L"1" : L"0",
                 static_cast<Int32>(GetCurrentProcessIntegrityRid()),
-                static_cast<Int32>(InterlockedCompareExchange(&g_lastSetupApiError, 0, 0)),
+                static_cast<Int32>(setupErr),
                 static_cast<Int32>(InterlockedCompareExchange(&g_lastConfigManagerResult, 0, 0)),
-                static_cast<Int32>(InterlockedCompareExchange(&g_lastHardwareToggleStage, 0, 0))
+                static_cast<Int32>(InterlockedCompareExchange(&g_lastHardwareToggleStage, 0, 0)),
+                msclr::interop::marshal_as<String^>(GetLastWin32ErrorText(static_cast<DWORD>(setupErr)))
             ),
             targetId,
             L"Enabled",
-            result && verified
+            passed
         );
-        return result && verified;
+        return passed;
     }
 
     void MyForm::RestoreConfiguredCameraHardware(bool cycleDevice) {

@@ -23,6 +23,17 @@ Class Windows_Hello_Fix_v2_0.MyForm: AutoLayout, AnsiClass, Class, Public, Befor
     TryGetFailsafeTargetId(basic_string<wchar_t\,std::char_traits<wchar_t>\,std::allocator<wchar_t> >* IsImplicitlyDereferenced): PrivateScope, Public, HideBySig
     LogFailsafe(String, String, Boolean(HasFieldMarshal)): PrivateScope, Public, HideBySig
     LogFailsafeWithDevice(String, basic_string<wchar_t\,std::char_traits<wchar_t>\,std::allocator<wchar_t> >*, String, Boolean(HasFieldMarshal)): PrivateScope, Public, HideBySig
+    LogFailsafeEx(DiagLevel, String, String, String, String, String, Boolean(HasFieldMarshal)): PrivateScope, Public, HideBySig
+    LogFailsafeExWithDevice(DiagLevel, String, String, String, String, basic_string<wchar_t\,std::char_traits<wchar_t>\,std::allocator<wchar_t> >*, String, Boolean(HasFieldMarshal)): PrivateScope, Public, HideBySig
+    NewOperationId(String): PrivateScope, Public, HideBySig
+Struct Windows_Hello_Fix_v2_0.MyForm+DiagLevel: AutoLayout, AnsiClass, Class, NestedPublic, Sealed, BeforeFieldInit
+  :System.Enum
+  Fields:
+    Int32 value__ : Public, SpecialName, RTSpecialName
+    DiagLevel Debug = 0 : Public, Static, Literal, HasDefault
+    DiagLevel Info = 1 : Public, Static, Literal, HasDefault
+    DiagLevel Warn = 2 : Public, Static, Literal, HasDefault
+    DiagLevel Error = 3 : Public, Static, Literal, HasDefault
 Class Windows_Hello_Fix_v2_0.RecoveryLoopFailsafe: AutoLayout, AnsiClass, Class, Public, BeforeFieldInit
     Void .ctor(Windows_Hello_Fix_v2_0.MyForm): PrivateScope, Public, HideBySig, SpecialName, RTSpecialName
   Interfaces:
