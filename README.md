@@ -14,6 +14,7 @@
 Windows Hello Fix is a small native Windows app that runs quietly in the background and manages your RGB camera around lock, unlock, sleep, and startup — so face sign-in uses the IR sensor and just works, even in the dark.
 
 <!-- SHOWCASE: STARTUP CAMERA RECOVERY -->
+![HelloFix_Showcase](showcase/HelloFix_Showcase_480p.webp)
 
 ## 💡 The Problem
 
