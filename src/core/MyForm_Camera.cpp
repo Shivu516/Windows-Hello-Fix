@@ -709,6 +709,268 @@ bool ReenumerateCameraParent(std::wstring targetId, std::wstring& parentId, std:
     return true;
 }
 
+// ====== ISSUE #1 LEVEL 5 — DEEP DEVICE-INSTANCE REMOVAL (5A/5B) ======
+// The documented "software unplug/replug": DIF_REMOVE deletes the device instance
+// (devnode + hardware/software registry keys) WITHOUT touching the driver package,
+// and — unlike DICS_PROPCHANGE, CM disable, and CM query-remove, which the Level 1-4
+// rungs rely on — is NOT vetoed by open handles; the holders' I/O simply fails and
+// the final kernel teardown is deferred, not aborted. Re-enumeration then reinstalls
+// the same trusted driver from the driver store into a brand-new devnode carrying the
+// same instance ID. Stage codes 70-80:
+//   70 entered    71 empty target    72 5B on non-composite target (refused: the
+//   parent of a non-MI_ device would be a USB hub, never removed)    73 target not
+//   found / no sibling interfaces    74 parent chain failed    75 SetClassInstallParams
+//   failed    76 CallClassInstaller(DIF_REMOVE) failed    77 wait-gone timed out
+//   78 re-enumeration failed    79 wait-return/started failed    80 success.
+// scope: 0 = 5A — remove the target RGB interface devnode only, then re-enumerate its
+//        composite parent (the smallest ancestor that re-creates it).
+//        1 = 5B — remove the composite parent itself, then re-enumerate its hub
+//        ancestor; the IR/DFU siblings are recreated with the camera unit, and every
+//        expected sibling must come back for ok=true (partial recovery = failure).
+// Bounded waits everywhere: wait-gone <= 10 s, wait-return+started <= 25 s (250 ms poll).
+
+static void CollectChildInstanceIds(DEVINST parentInst, std::vector<std::wstring>& ids) {
+    DEVINST child = 0;
+    if (CM_Get_Child(&child, parentInst, 0) != CR_SUCCESS) {
+        return;
+    }
+    while (true) {
+        WCHAR idBuf[MAX_DEVICE_ID_LEN] = { 0 };
+        if (CM_Get_Device_IDW(child, idBuf, MAX_DEVICE_ID_LEN, 0) == CR_SUCCESS) {
+            ids.push_back(idBuf);
+        }
+        DEVINST next = 0;
+        if (CM_Get_Sibling(&next, child, 0) != CR_SUCCESS) {
+            break;
+        }
+        child = next;
+    }
+}
+
+bool RemoveAndReenumerateCameraHardware(std::wstring targetId, int deepScope, std::wstring& report) {
+    report.clear();
+    InterlockedExchange(&g_lastSetupApiError, ERROR_SUCCESS);
+    InterlockedExchange(&g_lastConfigManagerResult, CR_SUCCESS);
+    InterlockedExchange(&g_lastPropChangeFlags, 0);
+    InterlockedExchange(&g_lastHardwareToggleStage, 70);
+
+    if (targetId.empty()) {
+        InterlockedExchange(&g_lastHardwareToggleStage, 71);
+        report = L"Error=EmptyTarget";
+        return false;
+    }
+    if (deepScope == 1 && targetId.find(L"&MI_") == std::wstring::npos) {
+        InterlockedExchange(&g_lastHardwareToggleStage, 72);
+        report = L"Error=NotCompositeChild";
+        return false;
+    }
+
+    DEVINST targetInst = 0;
+    if (!LocateCameraDevInst(targetId, targetInst)) {
+        InterlockedExchange(&g_lastHardwareToggleStage, 73);
+        report = L"Error=TargetNotFound";
+        return false;
+    }
+
+    // Resolve removal target, re-enumeration ancestor, and the expected sibling set
+    // BEFORE anything is removed. For 5A the ancestor is the composite parent (still
+    // present after removing the child); for 5B it is the hub above the composite.
+    DEVINST removeInst = targetInst;
+    std::wstring removeId = targetId;
+    DEVINST ancestorInst = 0;
+    DEVINST compositeInst = 0;
+
+    CONFIGRET cr;
+    if (deepScope == 1) {
+        cr = CM_Get_Parent(&removeInst, targetInst, 0);
+        if (cr != CR_SUCCESS) {
+            InterlockedExchange(&g_lastConfigManagerResult, static_cast<LONG>(cr));
+            InterlockedExchange(&g_lastHardwareToggleStage, 74);
+            report = L"Error=ParentChainFailed";
+            return false;
+        }
+        cr = CM_Get_Parent(&ancestorInst, removeInst, 0);
+        if (cr != CR_SUCCESS) {
+            InterlockedExchange(&g_lastConfigManagerResult, static_cast<LONG>(cr));
+            InterlockedExchange(&g_lastHardwareToggleStage, 74);
+            report = L"Error=AncestorChainFailed";
+            return false;
+        }
+        compositeInst = removeInst;
+        WCHAR removeIdBuf[MAX_DEVICE_ID_LEN] = { 0 };
+        if (CM_Get_Device_IDW(removeInst, removeIdBuf, MAX_DEVICE_ID_LEN, 0) == CR_SUCCESS) {
+            removeId = removeIdBuf;
+        }
+    } else {
+        cr = CM_Get_Parent(&ancestorInst, targetInst, 0);
+        if (cr != CR_SUCCESS) {
+            InterlockedExchange(&g_lastConfigManagerResult, static_cast<LONG>(cr));
+            InterlockedExchange(&g_lastHardwareToggleStage, 74);
+            report = L"Error=AncestorChainFailed";
+            return false;
+        }
+        compositeInst = ancestorInst;
+    }
+
+    WCHAR ancestorIdBuf[MAX_DEVICE_ID_LEN] = { 0 };
+    std::wstring ancestorId;
+    if (CM_Get_Device_IDW(ancestorInst, ancestorIdBuf, MAX_DEVICE_ID_LEN, 0) == CR_SUCCESS) {
+        ancestorId = ancestorIdBuf;
+    }
+
+    std::vector<std::wstring> expectedSiblings;
+    CollectChildInstanceIds(compositeInst, expectedSiblings);
+    if (expectedSiblings.empty()) {
+        InterlockedExchange(&g_lastHardwareToggleStage, 73);
+        report = L"Error=NoSiblingInterfaces";
+        return false;
+    }
+    std::wstring beforeSummary = BuildChildStatusSummary(compositeInst);
+
+    // --- REMOVE (DIF_REMOVE, DI_REMOVEDEVICE_GLOBAL — keeps the driver package) ---
+    HDEVINFO hDevInfo = SetupDiGetClassDevs(NULL, NULL, NULL, DIGCF_ALLCLASSES);
+    if (hDevInfo == INVALID_HANDLE_VALUE) {
+        InterlockedExchange(&g_lastSetupApiError, static_cast<LONG>(GetLastError()));
+        InterlockedExchange(&g_lastHardwareToggleStage, 75);
+        report = L"Error=DevInfoSetFailed";
+        return false;
+    }
+
+    bool removed = false;
+    SP_DEVINFO_DATA devInfoData;
+    devInfoData.cbSize = sizeof(SP_DEVINFO_DATA);
+    for (int i = 0; SetupDiEnumDeviceInfo(hDevInfo, i, &devInfoData); i++) {
+        WCHAR instancePath[MAX_DEVICE_ID_LEN];
+        if (SetupDiGetDeviceInstanceId(hDevInfo, &devInfoData, instancePath, MAX_DEVICE_ID_LEN, NULL)) {
+            if (removeId == instancePath || _wcsicmp(removeId.c_str(), instancePath) == 0) {
+                SP_REMOVEDEVICE_PARAMS params;
+                ZeroMemory(&params, sizeof(SP_REMOVEDEVICE_PARAMS));
+                params.ClassInstallHeader.cbSize = sizeof(SP_CLASSINSTALL_HEADER);
+                params.ClassInstallHeader.InstallFunction = DIF_REMOVE;
+                // GLOBAL removes the instance in all hardware profiles — the devcon
+                // `remove` scope. CONFIGSPECIFIC applies to root-enumerated devices
+                // only and is wrong for a USB-enumerated camera.
+                params.Scope = DI_REMOVEDEVICE_GLOBAL;
+                params.HwProfile = 0;
+
+                if (!SetupDiSetClassInstallParams(hDevInfo, &devInfoData, &params.ClassInstallHeader, sizeof(params))) {
+                    InterlockedExchange(&g_lastSetupApiError, static_cast<LONG>(GetLastError()));
+                    InterlockedExchange(&g_lastHardwareToggleStage, 75);
+                    break;
+                }
+                if (!SetupDiCallClassInstaller(DIF_REMOVE, hDevInfo, &devInfoData)) {
+                    InterlockedExchange(&g_lastSetupApiError, static_cast<LONG>(GetLastError()));
+                    InterlockedExchange(&g_lastHardwareToggleStage, 76);
+                    break;
+                }
+                SP_DEVINSTALL_PARAMS devParams;
+                ZeroMemory(&devParams, sizeof(devParams));
+                devParams.cbSize = sizeof(devParams);
+                if (SetupDiGetDeviceInstallParams(hDevInfo, &devInfoData, &devParams)) {
+                    InterlockedExchange(&g_lastPropChangeFlags,
+                        static_cast<LONG>(devParams.Flags & (DI_NEEDRESTART | DI_NEEDREBOOT)));
+                }
+                InterlockedExchange(&g_lastSetupApiError, ERROR_SUCCESS);
+                removed = true;
+                break;
+            }
+        }
+    }
+    SetupDiDestroyDeviceInfoList(hDevInfo);
+    if (!removed) {
+        if (InterlockedCompareExchange(&g_lastHardwareToggleStage, 0, 0) == 70) {
+            InterlockedExchange(&g_lastHardwareToggleStage, 73); // removal target absent from the devinfo set
+        }
+        if (report.empty()) {
+            report = L"Error=RemoveNotAccepted";
+        }
+        return false;
+    }
+
+    // --- WAIT GONE (bounded; removal can complete asynchronously) ---
+    ULONGLONG waitStart = GetTickCount64();
+    bool gone = false;
+    while (GetTickCount64() - waitStart < 10000) {
+        DEVINST probe = 0;
+        if (CM_Locate_DevNodeW(&probe, &removeId[0], CM_LOCATE_DEVNODE_NORMAL) != CR_SUCCESS) {
+            gone = true;
+            break;
+        }
+        ::Sleep(250);
+    }
+    ULONGLONG goneMs = GetTickCount64() - waitStart;
+    if (!gone) {
+        InterlockedExchange(&g_lastHardwareToggleStage, 77);
+        wchar_t numBuf[32];
+        swprintf_s(numBuf, L"%lu", static_cast<unsigned long>(goneMs));
+        report = std::wstring(L"Phase=WaitGone Gone=false ElapsedMs=") + numBuf;
+        return false;
+    }
+
+    // --- RE-ENUMERATE the smallest appropriate ancestor ---
+    cr = CM_Reenumerate_DevNode(ancestorInst, CM_REENUMERATE_SYNCHRONOUS);
+    InterlockedExchange(&g_lastConfigManagerResult, static_cast<LONG>(cr));
+    if (cr != CR_SUCCESS) {
+        InterlockedExchange(&g_lastHardwareToggleStage, 78);
+        report = L"Phase=Reenumerate Failed";
+        return false;
+    }
+
+    // --- WAIT RETURN + STARTED (every expected sibling, same instance IDs) ---
+    waitStart = GetTickCount64();
+    bool allBack = false;
+    while (GetTickCount64() - waitStart < 25000) {
+        size_t ready = 0;
+        for (size_t s = 0; s < expectedSiblings.size(); s++) {
+            DEVINST probe = 0;
+            ULONG status = 0;
+            ULONG problem = 0;
+            if (CM_Locate_DevNodeW(&probe, &expectedSiblings[s][0], CM_LOCATE_DEVNODE_NORMAL) == CR_SUCCESS &&
+                CM_Get_DevNode_Status(&status, &problem, probe, 0) == CR_SUCCESS &&
+                (status & DN_STARTED) != 0 && (status & DN_HAS_PROBLEM) == 0) {
+                ready++;
+            }
+        }
+        if (ready == expectedSiblings.size()) {
+            allBack = true;
+            break;
+        }
+        ::Sleep(250);
+    }
+    ULONGLONG returnMs = GetTickCount64() - waitStart;
+
+    DEVINST compositeAfter = 0;
+    bool haveCompositeAfter = false;
+    if (deepScope == 1) {
+        haveCompositeAfter = (CM_Locate_DevNodeW(&compositeAfter, &removeId[0], CM_LOCATE_DEVNODE_NORMAL) == CR_SUCCESS);
+    } else {
+        compositeAfter = ancestorInst;
+        haveCompositeAfter = true;
+    }
+    std::wstring afterSummary = haveCompositeAfter ? BuildChildStatusSummary(compositeAfter) : L"none";
+
+    wchar_t goneBuf[32];
+    swprintf_s(goneBuf, L"%lu", static_cast<unsigned long>(goneMs));
+    wchar_t returnBuf[32];
+    swprintf_s(returnBuf, L"%lu", static_cast<unsigned long>(returnMs));
+
+    report = std::wstring(L"Scope=") + (deepScope == 1 ? L"5B" : L"5A") +
+             L" | Removed=" + removeId +
+             L" | Ancestor=" + ancestorId +
+             L" | GoneMs=" + goneBuf +
+             L" | ReturnMs=" + returnBuf +
+             L" | Before{" + beforeSummary + L"} After{" + afterSummary + L"}";
+
+    if (!allBack) {
+        InterlockedExchange(&g_lastHardwareToggleStage, 79);
+        report += L" | Phase=WaitReturn Failed";
+        return false;
+    }
+
+    InterlockedExchange(&g_lastHardwareToggleStage, 80);
+    return true;
+}
+
 // ====== MyForm member camera operations (originally inline in header) ======
 
 namespace Windows_Hello_Fix_v2_0 {

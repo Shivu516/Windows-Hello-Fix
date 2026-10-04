@@ -192,7 +192,9 @@ static DWORD WINAPI CameraHealthWorkerProc(LPVOID param) {
 }
 
 // Recovery-rung worker — calls only the src/core primitives (single device/system
-// authority); rung 3 deliberately reuses the existing full-cycle pipeline untouched.
+// authority); rung 3 deliberately reuses the existing full-cycle pipeline untouched,
+// rungs 5/6 implement the Level 5A/5B deep device-instance removal from
+// docs/Issue1_Deep_Device_Recovery_Research.md §D.1.
 static DWORD WINAPI CameraRungWorkerProc(LPVOID param) {
     CameraRungWorkContext* ctx = static_cast<CameraRungWorkContext*>(param);
     ctx->ok = false;
@@ -214,6 +216,14 @@ static DWORD WINAPI CameraRungWorkerProc(LPVOID param) {
             ctx->detail = L"Parent=" + parentId + L" | " + siblingStatus;
             break;
         }
+        case 5:
+            // 5A: remove the RGB interface devnode, re-enumerate the composite parent.
+            ctx->ok = RemoveAndReenumerateCameraHardware(ctx->targetId, 0, ctx->detail);
+            break;
+        case 6:
+            // 5B: remove the composite camera unit itself, re-enumerate its hub.
+            ctx->ok = RemoveAndReenumerateCameraHardware(ctx->targetId, 1, ctx->detail);
+            break;
         default:
             break;
     }
@@ -242,6 +252,13 @@ namespace Windows_Hello_Fix_v2_0 {
         return L"Unknown";
     }
 
+    // Rungs 5/6 are the Level 5A/5B sub-levels of the deep-removal mechanism.
+    static System::String^ RungDisplayName(int rung) {
+        if (rung == 5) return L"5A";
+        if (rung == 6) return L"5B";
+        return System::String::Format(L"{0}", rung);
+    }
+
     // File-local logging helper (free function: MyForm::DiagLevel needs the complete type,
     // which is available in this .cpp but not in the forward-declaring header).
     static void WriteCamRecLog(MyForm^ owner, MyForm::DiagLevel level, System::String^ eventName,
@@ -267,6 +284,7 @@ namespace Windows_Hello_Fix_v2_0 {
         , parkedUntilTick(0)
         , prevExpectedDisabledObserved(false)
         , notFoundRecheckQueued(false)
+        , healthWorkerAbandoned(false)
         , isArmed(false)
         , pendingGapAction(GapAction::None)
         , healthContext(nullptr)
@@ -319,6 +337,7 @@ namespace Windows_Hello_Fix_v2_0 {
         parkedUntilTick = 0;
         prevExpectedDisabledObserved = false;
         notFoundRecheckQueued = false;
+        healthWorkerAbandoned = false;
         pendingGapAction = GapAction::None;
 
         try {
@@ -535,6 +554,7 @@ namespace Windows_Hello_Fix_v2_0 {
 
         healthContext = ctx;
         healthThread = thread;
+        healthWorkerAbandoned = false;
         workerDeadlineTick = GetTickCount64() + kHealthBudgetMs;
         state = RecoveryState::Checking;
         resultTimer->Start();
@@ -588,6 +608,7 @@ namespace Windows_Hello_Fix_v2_0 {
                 healthContext = nullptr;
                 healthThread = nullptr;
                 resultTimer->Stop();
+                healthWorkerAbandoned = true;
 
                 lastHealthStatus = CameraHealthStatus::Timeout;
                 lastHealthHr = HRESULT_FROM_WIN32(WAIT_TIMEOUT);
@@ -626,7 +647,7 @@ namespace Windows_Hello_Fix_v2_0 {
 
                 System::String^ details = System::String::Format(
                     L"Rung={0} | Stage={1} | SetupErr={2} | CfgMgr={3} | PropFlags=0x{4:X8} | ServiceState={5} | ServiceErr={6}",
-                    rung, static_cast<int>(stage), static_cast<int>(setupErr), static_cast<int>(cfgMgr),
+                    RungDisplayName(rung), static_cast<int>(stage), static_cast<int>(setupErr), static_cast<int>(cfgMgr),
                     static_cast<int>(propFlags), static_cast<int>(serviceState), static_cast<int>(serviceErr));
                 if (detail != nullptr && detail->Length > 0) {
                     details = details + L" | " + detail;
@@ -646,7 +667,7 @@ namespace Windows_Hello_Fix_v2_0 {
                 resultTimer->Stop();
 
                 WriteCamRecLog(owner, MyForm::DiagLevel::Error, L"CameraRecovery_RungTimeout", incidentOp,
-                    System::String::Format(L"Rung={0}", currentRung), std::wstring(), L"Enabled", false);
+                    System::String::Format(L"Rung={0}", RungDisplayName(currentRung)), std::wstring(), L"Enabled", false);
                 // A hung device/service operation means the stack is in an unknown state —
                 // abort instead of stacking further operations onto it.
                 AbortIncident(L"RungTimeout");
@@ -685,7 +706,7 @@ namespace Windows_Hello_Fix_v2_0 {
                 // proves the device responds).
                 WriteCamRecLog(owner, MyForm::DiagLevel::Info, L"CameraRecovery_Recovered", incidentOp,
                     System::String::Format(L"Rung={0} | TotalMs={1} | Result={2}",
-                        currentRung, static_cast<int>(GetTickCount64() - incidentStartTick), HealthStatusText(status)),
+                        RungDisplayName(currentRung), static_cast<int>(GetTickCount64() - incidentStartTick), HealthStatusText(status)),
                     deviceId, L"Enabled", true);
                 currentRung = 0;
                 notFoundRecheckQueued = false;
@@ -742,7 +763,7 @@ namespace Windows_Hello_Fix_v2_0 {
     void CameraRecoveryFailsafe::AdvanceOrExhaust()
     {
         if (!isArmed) return;
-        if (currentRung >= 4) {
+        if (currentRung >= 6) {
             ParkAfterExhaustion();
             return;
         }
@@ -764,8 +785,16 @@ namespace Windows_Hello_Fix_v2_0 {
         currentRung = rung;
         state = RecoveryState::Recovering;
 
+        if (rung >= 5 && healthWorkerAbandoned) {
+            // §13 guard note: an orphaned health-check worker may still hold camera
+            // handles. Removal (unlike the propchange restart) is not handle-vetoed —
+            // the stuck worker's I/O fails and it self-cleans — so we proceed, but say so.
+            WriteCamRecLog(owner, MyForm::DiagLevel::Warn, L"CameraRecovery_RungStart", incidentOp,
+                L"Note=OrphanedHealthWorkerMayHoldHandles", targetId, L"Enabled", true);
+        }
+
         WriteCamRecLog(owner, MyForm::DiagLevel::Info, L"CameraRecovery_RungStart", incidentOp,
-            System::String::Format(L"Rung={0}", rung), targetId, L"Enabled", true);
+            System::String::Format(L"Rung={0}", RungDisplayName(rung)), targetId, L"Enabled", true);
 
         CameraRungWorkContext* ctx = new CameraRungWorkContext();
         ctx->rung = rung;
@@ -793,6 +822,8 @@ namespace Windows_Hello_Fix_v2_0 {
         if (rung == 1) budgetMs = kRung1BudgetMs;
         else if (rung == 2) budgetMs = kRung2BudgetMs;
         else if (rung == 3) budgetMs = kRung3BudgetMs;
+        else if (rung == 5) budgetMs = kRung5BudgetMs;
+        else if (rung == 6) budgetMs = kRung6BudgetMs;
         workerDeadlineTick = GetTickCount64() + budgetMs;
         resultTimer->Start();
     }

@@ -65,6 +65,7 @@ namespace Windows_Hello_Fix_v2_0 {
         ULONGLONG parkedUntilTick;             // exhaustion parking (cleared by next expected-disabled episode)
         bool prevExpectedDisabledObserved;     // enables the unlock/resume transition trigger
         bool notFoundRecheckQueued;            // one delayed re-check for NotFound, never more
+        bool healthWorkerAbandoned;            // a health-check worker was orphaned past its budget
         bool isArmed;
 
         enum class GapAction { None, PostRungCheck, NotFoundRecheck };
@@ -89,6 +90,8 @@ namespace Windows_Hello_Fix_v2_0 {
         static const int kRung2BudgetMs = 40000;           // service restart (2×10 s bounded waits + slack)
         static const int kRung3BudgetMs = 25000;           // existing full cycle
         static const int kRung4BudgetMs = 25000;           // parent re-enumeration (incl. 1 s settle)
+        static const int kRung5BudgetMs = 60000;           // 5A: DIF_REMOVE MI_00 + wait-gone (10 s) + re-enum + wait-return (25 s)
+        static const int kRung6BudgetMs = 75000;           // 5B: composite removal + whole camera unit rediscovery
         static const int kGapMs = 5000;                    // settle between rung and follow-up check
         static const int kNotFoundRecheckMs = 15000;
         static const ULONGLONG kCheckCooldownMs = 60000;   // min spacing between routine checks

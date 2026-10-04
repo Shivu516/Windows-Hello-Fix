@@ -1,0 +1,3 @@
+﻿[2026-10-04 19:35:50.661] [INFO   ] Target camera (config.txt): USB\VID_04F2&PID_B829&MI_00\6&321DD860&1&0000
+[2026-10-04 19:35:50.676] [INFO   ] Toggle device id: USB\VID_04F2&PID_B829&MI_00\6&321DD860&1&0000
+[2026-10-04 19:35:53.131] [INFO   ] [baseline] PnP=OK/CM_PROB_NONE CameraStack=RebootRequired HRESULT=0xC00D7167 (MF_E_REBOOT_REQUIRED - the Issue #1 signature)

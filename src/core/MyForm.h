@@ -214,6 +214,17 @@ bool RestartCameraFrameServerService();
 //   (their parent would be a hub). Reports the parent instance ID and a before/after
 //   sibling devnode status summary (IR-safety evidence). Stages 60-65.
 bool ReenumerateCameraParent(std::wstring targetId, std::wstring& parentId, std::wstring& siblingStatusReport);
+// Rung 5A/5B: deep device-instance removal — the documented "software unplug/replug".
+//   DIF_REMOVE with DI_REMOVEDEVICE_GLOBAL deletes the devnode (NOT the driver package)
+//   and, unlike DICS_PROPCHANGE/disable/query-remove, is NOT vetoed by open handles;
+//   re-enumeration then reinstalls the same driver from the driver store into a fresh
+//   devnode with the same instance ID. scope 0 (5A) removes the target RGB interface
+//   devnode and re-enumerates its composite parent; scope 1 (5B) removes the composite
+//   parent itself (only valid for &MI_ multi-interface targets) and re-enumerates its
+//   hub ancestor. ok requires removal accepted, target gone (bounded), re-enumeration
+//   issued, and EVERY expected sibling interface back and started (same instance IDs).
+//   Stages 70-80; details (phases, elapsed, before/after topology) in the report string.
+bool RemoveAndReenumerateCameraHardware(std::wstring targetId, int deepScope, std::wstring& report);
 std::wstring GetLastWin32ErrorText(DWORD err);
 
 std::wstring TrimTrailingChars(const std::wstring& str);
