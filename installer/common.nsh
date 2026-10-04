@@ -1,6 +1,6 @@
-; common.nsh — shared Windows Hello Fix v2.1 installer logic.
+; common.nsh — shared Windows Hello Fix v2.2 installer logic.
 ;
-; Behavioral reference: x64/Release/install_script.nsi (authoritative v2.0/v2.1 installer).
+; Behavioral reference: x64/Release/install_script.nsi (authoritative v2.0/v2.2 installer).
 ; This file contains NO architecture-specific payload selection itself. The thin
 ; wrapper scripts (install_x86.nsi / install_x64.nsi / install_universal.nsi)
 ; define how the payload reaches $INSTDIR, then all three share the macros below:
@@ -25,15 +25,19 @@ Var AppExeName
 Var AppMetagenName
 
 ; --- Known executable identities (upgrade safety, PART 14) ---
-; Old release line plus both v2.1 architecture payloads. Install/uninstall logic
-; must handle all three so renaming v2_0 -> v2_1_x86/x64 never orphans files,
-; processes, shortcuts, tasks or AppCompat entries.
+; Legacy release lines plus both current v2.2 architecture payloads. Install/uninstall
+; logic must handle every identity so renames (v2_0 -> v2_1 -> v2_2_x86/x64) and arch
+; switches never orphan files, processes, shortcuts, tasks or AppCompat entries.
 !define OLD_EXE_NAME "Windows_Hello_Fix_v2_0.exe"
 !define OLD_METAGEN_NAME "Windows_Hello_Fix_v2_0.exe.metagen"
-!define X86_EXE_NAME "Windows_Hello_Fix_v2_1_x86.exe"
-!define X86_METAGEN_NAME "Windows_Hello_Fix_v2_1_x86.exe.metagen"
-!define X64_EXE_NAME "Windows_Hello_Fix_v2_1_x64.exe"
-!define X64_METAGEN_NAME "Windows_Hello_Fix_v2_1_x64.exe.metagen"
+!define PREV_X86_EXE_NAME "Windows_Hello_Fix_v2_1_x86.exe"
+!define PREV_X86_METAGEN_NAME "Windows_Hello_Fix_v2_1_x86.exe.metagen"
+!define PREV_X64_EXE_NAME "Windows_Hello_Fix_v2_1_x64.exe"
+!define PREV_X64_METAGEN_NAME "Windows_Hello_Fix_v2_1_x64.exe.metagen"
+!define X86_EXE_NAME "Windows_Hello_Fix_v2_2_x86.exe"
+!define X86_METAGEN_NAME "Windows_Hello_Fix_v2_2_x86.exe.metagen"
+!define X64_EXE_NAME "Windows_Hello_Fix_v2_2_x64.exe"
+!define X64_METAGEN_NAME "Windows_Hello_Fix_v2_2_x64.exe.metagen"
 
 ; --- Registry view for this installation ---
 ; Standalone scripts resolve at compile time; universal resolves at runtime.
@@ -60,7 +64,7 @@ Var AppMetagenName
   Pop $0
 
   ${If} $0 != 0
-    FindWindow $1 "#32770" "Windows Hello Fix v2.1 Setup"
+    FindWindow $1 "#32770" "Windows Hello Fix v2.2 Setup"
     ${If} $1 != 0
       ShowWindow $1 5
       BringToFront
@@ -86,19 +90,25 @@ Var AppMetagenName
 
 ; --- Remove a possibly-stale payload of the OTHER architecture / old release ---
 ; Called after SetOutPath "$INSTDIR", before the new payload lands, so a same-directory
-; arch switch or v2_0 -> v2_1 upgrade never leaves a stale exe behind.
+; arch switch or v2_0 -> v2_2 upgrade never leaves a stale exe behind.
 !macro CLEAN_STALE_PAYLOADS
   Delete "$INSTDIR\${OLD_EXE_NAME}"
   Delete "$INSTDIR\${OLD_METAGEN_NAME}"
+  Delete "$INSTDIR\${PREV_X86_EXE_NAME}"
+  Delete "$INSTDIR\${PREV_X86_METAGEN_NAME}"
+  Delete "$INSTDIR\${PREV_X64_EXE_NAME}"
+  Delete "$INSTDIR\${PREV_X64_METAGEN_NAME}"
   Delete "$INSTDIR\${X86_EXE_NAME}"
   Delete "$INSTDIR\${X86_METAGEN_NAME}"
   Delete "$INSTDIR\${X64_EXE_NAME}"
   Delete "$INSTDIR\${X64_METAGEN_NAME}"
 !macroend
 
-; --- Terminate every known app identity (old + both arches) before swapping binaries ---
+; --- Terminate every known app identity (legacy + both arches) before swapping binaries ---
 !macro KILL_ALL_KNOWN_EXES
   nsExec::Exec 'taskkill /F /IM ${OLD_EXE_NAME} /T'
+  nsExec::Exec 'taskkill /F /IM ${PREV_X86_EXE_NAME} /T'
+  nsExec::Exec 'taskkill /F /IM ${PREV_X64_EXE_NAME} /T'
   nsExec::Exec 'taskkill /F /IM ${X86_EXE_NAME} /T'
   nsExec::Exec 'taskkill /F /IM ${X64_EXE_NAME} /T'
   Sleep 1500
@@ -150,7 +160,7 @@ Var AppMetagenName
   ; Write registry configuration keys for Add/Remove Programs control interface
   !insertmacro SET_ARCH_REGVIEW
   DeleteRegValue HKLM "Software\Microsoft\Windows\CurrentVersion\Run" "WindowsHelloFix"
-  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\WindowsHelloFix" "DisplayName" "Windows Hello Fix v2.1"
+  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\WindowsHelloFix" "DisplayName" "Windows Hello Fix v2.2"
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\WindowsHelloFix" "UninstallString" '"$INSTDIR\Uninstall.exe"'
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\WindowsHelloFix" "DisplayIcon" "$INSTDIR\WindowsHelloFix.ico"
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\WindowsHelloFix" "Publisher" "Shivu516"
@@ -160,6 +170,10 @@ Var AppMetagenName
   ; Clean stale flags for every known exe identity (upgrade safety).
   DeleteRegValue HKLM "Software\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers" "$INSTDIR\${OLD_EXE_NAME}"
   DeleteRegValue HKCU "Software\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers" "$INSTDIR\${OLD_EXE_NAME}"
+  DeleteRegValue HKLM "Software\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers" "$INSTDIR\${PREV_X86_EXE_NAME}"
+  DeleteRegValue HKCU "Software\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers" "$INSTDIR\${PREV_X86_EXE_NAME}"
+  DeleteRegValue HKLM "Software\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers" "$INSTDIR\${PREV_X64_EXE_NAME}"
+  DeleteRegValue HKCU "Software\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers" "$INSTDIR\${PREV_X64_EXE_NAME}"
   DeleteRegValue HKLM "Software\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers" "$INSTDIR\${X86_EXE_NAME}"
   DeleteRegValue HKCU "Software\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers" "$INSTDIR\${X86_EXE_NAME}"
   DeleteRegValue HKLM "Software\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers" "$INSTDIR\${X64_EXE_NAME}"
@@ -294,6 +308,10 @@ Var AppMetagenName
   DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\WindowsHelloFix"
   DeleteRegValue HKLM "Software\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers" "$INSTDIR\${OLD_EXE_NAME}"
   DeleteRegValue HKCU "Software\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers" "$INSTDIR\${OLD_EXE_NAME}"
+  DeleteRegValue HKLM "Software\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers" "$INSTDIR\${PREV_X86_EXE_NAME}"
+  DeleteRegValue HKCU "Software\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers" "$INSTDIR\${PREV_X86_EXE_NAME}"
+  DeleteRegValue HKLM "Software\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers" "$INSTDIR\${PREV_X64_EXE_NAME}"
+  DeleteRegValue HKCU "Software\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers" "$INSTDIR\${PREV_X64_EXE_NAME}"
   DeleteRegValue HKLM "Software\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers" "$INSTDIR\${X86_EXE_NAME}"
   DeleteRegValue HKCU "Software\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers" "$INSTDIR\${X86_EXE_NAME}"
   DeleteRegValue HKLM "Software\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers" "$INSTDIR\${X64_EXE_NAME}"
@@ -306,6 +324,10 @@ Var AppMetagenName
   ; Clean deployed installation binaries (every known identity)
   Delete "$INSTDIR\${OLD_EXE_NAME}"
   Delete "$INSTDIR\${OLD_METAGEN_NAME}"
+  Delete "$INSTDIR\${PREV_X86_EXE_NAME}"
+  Delete "$INSTDIR\${PREV_X86_METAGEN_NAME}"
+  Delete "$INSTDIR\${PREV_X64_EXE_NAME}"
+  Delete "$INSTDIR\${PREV_X64_METAGEN_NAME}"
   Delete "$INSTDIR\${X86_EXE_NAME}"
   Delete "$INSTDIR\${X86_METAGEN_NAME}"
   Delete "$INSTDIR\${X64_EXE_NAME}"

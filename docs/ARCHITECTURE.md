@@ -1,4 +1,4 @@
-# Windows Hello Fix v2.1 — Architecture
+# Windows Hello Fix v2.2 — Architecture
 
 > Documentation-only. Describes the **current** source under `src/core/` + `src/watchdog/` + `main.cpp`. No code was modified.
 

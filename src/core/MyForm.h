@@ -45,6 +45,14 @@ extern volatile LONG g_lastHardwareToggleStage;
 // InterlockedExchange pattern as the sibling g_last* globals.
 extern volatile LONG g_lastAttemptCount;
 extern volatile LONG g_lastSuccessPath;
+// CameraRecoveryFailsafe (Issue #1) attribution globals — additive, same Interlocked pattern.
+// g_lastPropChangeFlags: deferred-restart bits (DI_NEEDRESTART | DI_NEEDREBOOT) captured
+//   after a DICS_PROPCHANGE restart; 0 = restart took effect immediately.
+// g_lastServiceState / g_lastServiceError: last observed SERVICE_STATE and the Win32 error
+//   of the Windows Camera Frame Server service restart (ERROR_SUCCESS on success).
+extern volatile LONG g_lastPropChangeFlags;
+extern volatile LONG g_lastServiceState;
+extern volatile LONG g_lastServiceError;
 
 // Forward-declare native helpers used by inline class methods to ensure
 // they are visible at class parsing time.
@@ -190,6 +198,22 @@ bool TryEnterHardwareToggleCooldown(ULONGLONG cooldownMs);
 void RecordHardwareToggleTime();
 bool RecoverCameraHardware(std::wstring targetId, bool cycleDevice);
 void RestoreAllCameraHardware(bool cycleDevices);
+
+// Issue #1 same-session recovery primitives (additive; called only by
+// src/watchdog/CameraRecoveryFailsafe — the watchdog decides WHEN, these decide HOW).
+// Rung 1: documented device restart — DIF_PROPERTYCHANGE + DICS_PROPCHANGE stops and
+//   restarts the devnode's driver stack in place WITHOUT changing its enabled state.
+//   Stages 30-36; sets g_lastSetupApiError + g_lastPropChangeFlags.
+bool RestartCameraHardware(std::wstring targetId);
+// Rung 2: bounded restart of the "FrameServer" (Windows Camera Frame Server) service via
+//   the SCM. Reports absence (false + g_lastServiceError=ERROR_SERVICE_DOES_NOT_EXIST) on
+//   systems without it. Never touches other services. Stages 40-50.
+bool RestartCameraFrameServerService();
+// Rung 4: re-enumeration of the composite parent of a multi-interface (MI_*) camera child
+//   — the correct tree level for genuine re-detection. Refuses non-composite targets
+//   (their parent would be a hub). Reports the parent instance ID and a before/after
+//   sibling devnode status summary (IR-safety evidence). Stages 60-65.
+bool ReenumerateCameraParent(std::wstring targetId, std::wstring& parentId, std::wstring& siblingStatusReport);
 std::wstring GetLastWin32ErrorText(DWORD err);
 
 std::wstring TrimTrailingChars(const std::wstring& str);

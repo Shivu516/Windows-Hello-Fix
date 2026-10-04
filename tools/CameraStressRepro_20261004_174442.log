@@ -1,0 +1,15 @@
+﻿[2026-10-04 17:44:42.960] [INFO   ] Target camera (config.txt): USB\VID_04F2&PID_B829&MI_00\6&321DD860&1&0000
+[2026-10-04 17:44:42.974] [INFO   ] Toggle device id: USB\VID_04F2&PID_B829&MI_00\6&321DD860&1&0000
+[2026-10-04 17:44:44.591] [INFO   ] [baseline] PnP=OK/CM_PROB_NONE CameraStack=Healthy HRESULT= (First frame obtained)
+[2026-10-04 17:44:44.600] [INFO   ] --- iteration 1/60 (MidStreamToggle) ---
+[2026-10-04 17:44:45.036] [INFO   ] [stream] LIVE - frames flowing; disabling device mid-stream now
+[2026-10-04 17:44:51.234] [WARN   ] pnputil /disable-device failed: Microsoft PnP Utility  Disabling device:          USB\VID_04F2&PID_B829&MI_00\6&321dd860&1&0000 System reboot is needed to complete configuration operations! 
+[2026-10-04 17:44:56.295] [WARN   ] pnputil /enable-device failed: Microsoft PnP Utility  Failed to enable device:  USB\VID_04F2&PID_B829&MI_00\6&321dd860&1&0000 Device is pending system reboot to complete a previous operation.  This command is not supported on this OS product.
+[2026-10-04 17:44:56.634] [INFO   ] [stream] device re-enabled, PnP settled=True; stopping stream client
+[2026-10-04 17:45:01.157] [INFO   ] [cycle 1 post-toggle] PnP=OK/CM_PROB_NONE CameraStack=RebootRequired HRESULT=0xC00D7167 (MF_E_REBOOT_REQUIRED - the Issue #1 signature)
+[2026-10-04 17:45:02.167] [INFO   ] --- iteration 2/60 (MidStreamToggle) ---
+[2026-10-04 17:45:02.209] [WARN   ] [stream] stream setup/teardown issue: 0xC00D7167 We need to reboot the machine. (Exception from HRESULT: 0xC00D7167)
+[2026-10-04 17:45:06.624] [INFO   ] [cycle 2 post-toggle] PnP=OK/CM_PROB_NONE CameraStack=RebootRequired HRESULT=0xC00D7167 (MF_E_REBOOT_REQUIRED - the Issue #1 signature)
+[2026-10-04 17:45:07.637] [INFO   ] --- iteration 3/60 (MidStreamToggle) ---
+[2026-10-04 17:45:07.676] [WARN   ] [stream] stream setup/teardown issue: 0xC00D7167 We need to reboot the machine. (Exception from HRESULT: 0xC00D7167)
+[2026-10-04 17:45:12.081] [INFO   ] [cycle 3 post-toggle] PnP=OK/CM_PROB_NONE CameraStack=RebootRequired HRESULT=0xC00D7167 (MF_E_REBOOT_REQUIRED - the Issue #1 signature)

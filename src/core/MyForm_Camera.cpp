@@ -12,6 +12,9 @@ volatile LONG g_lastConfigManagerResult = CR_SUCCESS;
 volatile LONG g_lastHardwareToggleStage = 0;
 volatile LONG g_lastAttemptCount = 0;
 volatile LONG g_lastSuccessPath = 0;
+volatile LONG g_lastPropChangeFlags = 0;
+volatile LONG g_lastServiceState = 0;
+volatile LONG g_lastServiceError = ERROR_SUCCESS;
 
 // ====== NATIVE FUNCTION IMPLEMENTATIONS ======
 
@@ -419,6 +422,291 @@ void RestoreAllCameraHardware(bool cycleDevices) {
     for (size_t i = 0; i < cameras.size(); i++) {
         RecoverCameraHardware(cameras[i].instanceId, cycleDevices);
     }
+}
+
+// ====== ISSUE #1 SAME-SESSION RECOVERY PRIMITIVES ======
+// Additive operations for src/watchdog/CameraRecoveryFailsafe (Issue #1: the camera is
+// PnP-enabled but the Media Foundation camera stack is unusable — e.g. MF_E_REBOOT_REQUIRED,
+// Camera app 0xA00F4241(0xC00D7167)). Each primitive is a distinct documented mechanism;
+// none duplicates the enable/disable toggle paths above. The watchdog decides WHEN these
+// run; this file remains the single authority for HOW device/system state changes.
+// Stage codes: 30-36 devnode restart, 40-50 Frame Server service, 60-65 parent
+// re-enumeration (existing 10-15 SetupAPI toggle / 20-23 CfgMgr toggle unchanged).
+
+// Rung 1 — documented device restart (what devcon restart / pnputil /restart-device do):
+// DIF_PROPERTYCHANGE with DICS_PROPCHANGE stops and restarts the devnode's driver stack in
+// place WITHOUT changing its enabled/disabled state — intentionally not a disable/enable
+// toggle. DI_NEEDRESTART/DI_NEEDREBOOT in the resulting install params mean Windows
+// deferred the restart (typically because handles are open); that is surfaced through
+// g_lastPropChangeFlags instead of being reported as blind success.
+bool RestartCameraHardware(std::wstring targetId) {
+    InterlockedExchange(&g_lastSetupApiError, ERROR_SUCCESS);
+    InterlockedExchange(&g_lastPropChangeFlags, 0);
+    InterlockedExchange(&g_lastHardwareToggleStage, 30);
+
+    if (targetId.empty()) {
+        InterlockedExchange(&g_lastHardwareToggleStage, 31);
+        return false;
+    }
+
+    HDEVINFO hDevInfo = SetupDiGetClassDevs(NULL, NULL, NULL, DIGCF_ALLCLASSES);
+
+    if (hDevInfo == INVALID_HANDLE_VALUE) {
+        InterlockedExchange(&g_lastSetupApiError, static_cast<LONG>(GetLastError()));
+        InterlockedExchange(&g_lastHardwareToggleStage, 32);
+        return false;
+    }
+
+    SP_DEVINFO_DATA devInfoData;
+    devInfoData.cbSize = sizeof(SP_DEVINFO_DATA);
+    bool restarted = false;
+
+    for (int i = 0; SetupDiEnumDeviceInfo(hDevInfo, i, &devInfoData); i++) {
+        WCHAR instancePath[MAX_DEVICE_ID_LEN];
+
+        if (SetupDiGetDeviceInstanceId(hDevInfo, &devInfoData, instancePath, MAX_DEVICE_ID_LEN, NULL)) {
+            if (targetId == instancePath || _wcsicmp(targetId.c_str(), instancePath) == 0) {
+
+                SP_PROPCHANGE_PARAMS params;
+                ZeroMemory(&params, sizeof(SP_PROPCHANGE_PARAMS));
+
+                params.ClassInstallHeader.cbSize = sizeof(SP_CLASSINSTALL_HEADER);
+                params.ClassInstallHeader.InstallFunction = DIF_PROPERTYCHANGE;
+                params.StateChange = DICS_PROPCHANGE;
+                // Scope is ignored for DICS_PROPCHANGE per the SetupAPI docs; CONFIGSPECIFIC
+                // matches the devcon restart implementation.
+                params.Scope = DICS_FLAG_CONFIGSPECIFIC;
+                params.HwProfile = 0;
+
+                if (!SetupDiSetClassInstallParams(hDevInfo, &devInfoData, &params.ClassInstallHeader, sizeof(params))) {
+                    InterlockedExchange(&g_lastSetupApiError, static_cast<LONG>(GetLastError()));
+                    InterlockedExchange(&g_lastHardwareToggleStage, 33);
+                    break;
+                }
+
+                if (!SetupDiCallClassInstaller(DIF_PROPERTYCHANGE, hDevInfo, &devInfoData)) {
+                    InterlockedExchange(&g_lastSetupApiError, static_cast<LONG>(GetLastError()));
+                    InterlockedExchange(&g_lastHardwareToggleStage, 34);
+                    break;
+                }
+
+                SP_DEVINSTALL_PARAMS devParams;
+                ZeroMemory(&devParams, sizeof(devParams));
+                devParams.cbSize = sizeof(devParams);
+                if (SetupDiGetDeviceInstallParams(hDevInfo, &devInfoData, &devParams)) {
+                    InterlockedExchange(&g_lastPropChangeFlags,
+                        static_cast<LONG>(devParams.Flags & (DI_NEEDRESTART | DI_NEEDREBOOT)));
+                }
+
+                InterlockedExchange(&g_lastSetupApiError, ERROR_SUCCESS);
+                InterlockedExchange(&g_lastHardwareToggleStage, 36);
+                restarted = true;
+                break;
+            }
+        }
+    }
+    SetupDiDestroyDeviceInfoList(hDevInfo);
+    if (!restarted && InterlockedCompareExchange(&g_lastHardwareToggleStage, 0, 0) == 30) {
+        InterlockedExchange(&g_lastHardwareToggleStage, 35); // target not found
+    }
+    return restarted;
+}
+
+// Bounded wait for a service to reach a desired state (never hangs; 250 ms cadence).
+static bool WaitForServiceState(SC_HANDLE hSvc, DWORD desiredState, ULONG timeoutMs, DWORD& lastError) {
+    int waitedMs = 0;
+    while (waitedMs <= static_cast<int>(timeoutMs)) {
+        SERVICE_STATUS status;
+        if (!QueryServiceStatus(hSvc, &status)) {
+            lastError = GetLastError();
+            return false;
+        }
+        InterlockedExchange(&g_lastServiceState, static_cast<LONG>(status.dwCurrentState));
+        if (status.dwCurrentState == desiredState) {
+            return true;
+        }
+        if (desiredState == SERVICE_RUNNING && status.dwCurrentState == SERVICE_STOPPED) {
+            // Start already failed back into stopped state — no point waiting further.
+            return false;
+        }
+        ::Sleep(250);
+        waitedMs += 250;
+    }
+    lastError = ERROR_TIMEOUT;
+    return false;
+}
+
+// Rung 2 — bounded restart of the Windows Camera Frame Server service ("FrameServer").
+// This resets the shared camera software stack where the MF_E_REBOOT_REQUIRED state is
+// believed to live. It is stack-wide by nature (every camera client on the system
+// momentarily loses its session), so it is only invoked after rung 1 failed. Never
+// touches any other service; never implemented as an sc.exe/net.exe subprocess.
+bool RestartCameraFrameServerService() {
+    InterlockedExchange(&g_lastServiceError, ERROR_SUCCESS);
+    InterlockedExchange(&g_lastServiceState, 0);
+    InterlockedExchange(&g_lastHardwareToggleStage, 40);
+
+    SC_HANDLE hScm = NULL;
+    SC_HANDLE hSvc = NULL;
+    DWORD err = ERROR_SUCCESS;
+    bool ok = false;
+
+    do {
+        hScm = OpenSCManagerW(NULL, NULL, SC_MANAGER_CONNECT);
+        if (hScm == NULL) {
+            err = GetLastError();
+            InterlockedExchange(&g_lastHardwareToggleStage, 41);
+            break;
+        }
+
+        // Absence (ERROR_SERVICE_DOES_NOT_EXIST) is reported, not treated as a defect:
+        // the service is not guaranteed on every Windows edition/version.
+        hSvc = OpenServiceW(hScm, L"FrameServer", SERVICE_QUERY_STATUS | SERVICE_START | SERVICE_STOP);
+        if (hSvc == NULL) {
+            err = GetLastError();
+            InterlockedExchange(&g_lastHardwareToggleStage, 42);
+            break;
+        }
+
+        SERVICE_STATUS status;
+        if (!QueryServiceStatus(hSvc, &status)) {
+            err = GetLastError();
+            InterlockedExchange(&g_lastHardwareToggleStage, 43);
+            break;
+        }
+        InterlockedExchange(&g_lastServiceState, static_cast<LONG>(status.dwCurrentState));
+
+        // Stop (skip when already stopped; tolerate service-not-active races).
+        if (status.dwCurrentState != SERVICE_STOPPED) {
+            if (!ControlService(hSvc, SERVICE_CONTROL_STOP, &status)) {
+                DWORD stopErr = GetLastError();
+                if (stopErr != ERROR_SERVICE_NOT_ACTIVE) {
+                    err = stopErr;
+                    InterlockedExchange(&g_lastHardwareToggleStage, 44);
+                    break;
+                }
+            }
+            if (!WaitForServiceState(hSvc, SERVICE_STOPPED, 10000, err)) {
+                InterlockedExchange(&g_lastHardwareToggleStage, 46); // stop transition failed/timed out
+                break;
+            }
+        }
+
+        if (!StartServiceW(hSvc, 0, NULL)) {
+            DWORD startErr = GetLastError();
+            if (startErr != ERROR_SERVICE_ALREADY_RUNNING) {
+                err = startErr;
+                InterlockedExchange(&g_lastHardwareToggleStage, 47);
+                break;
+            }
+        }
+
+        if (!WaitForServiceState(hSvc, SERVICE_RUNNING, 10000, err)) {
+            InterlockedExchange(&g_lastHardwareToggleStage, 49); // start transition failed/timed out
+            break;
+        }
+
+        InterlockedExchange(&g_lastHardwareToggleStage, 50);
+        ok = true;
+    } while (0);
+
+    InterlockedExchange(&g_lastServiceError, static_cast<LONG>(err));
+
+    if (hSvc != NULL) CloseServiceHandle(hSvc);
+    if (hScm != NULL) CloseServiceHandle(hScm);
+    return ok;
+}
+
+// Read-only: "instanceId=status/problem" summary of a parent's children — the target and
+// its sibling interfaces (e.g. the IR camera). Used to evidence rung 4's sibling impact.
+static std::wstring BuildChildStatusSummary(DEVINST parentInst) {
+    std::wstring summary;
+    DEVINST child = 0;
+    if (CM_Get_Child(&child, parentInst, 0) != CR_SUCCESS) {
+        return L"none";
+    }
+    while (true) {
+        WCHAR idBuf[MAX_DEVICE_ID_LEN] = { 0 };
+        std::wstring id = L"?";
+        if (CM_Get_Device_IDW(child, idBuf, MAX_DEVICE_ID_LEN, 0) == CR_SUCCESS) {
+            id = idBuf;
+        }
+        ULONG status = 0;
+        ULONG problem = 0;
+        std::wstring stateText = L"?";
+        if (CM_Get_DevNode_Status(&status, &problem, child, 0) == CR_SUCCESS) {
+            WCHAR stateBuf[64];
+            swprintf_s(stateBuf, L"0x%08X/%lu", status, problem);
+            stateText = stateBuf;
+        }
+        if (!summary.empty()) {
+            summary += L"; ";
+        }
+        summary += id + L"=" + stateText;
+        DEVINST next = 0;
+        if (CM_Get_Sibling(&next, child, 0) != CR_SUCCESS) {
+            break;
+        }
+        child = next;
+    }
+    return summary;
+}
+
+// Rung 4 — re-enumerate the composite parent of a multi-interface (MI_*) camera child.
+// This targets the correct tree level for genuine re-detection: CM_Reenumerate_DevNode
+// re-enumerates a node's children, and the previous call in ToggleCameraHardwareCfgMgr
+// aims it at the child leaf itself (a no-op). Refuses non-composite targets — their
+// parent is a USB hub and re-enumerating it would disturb every device on that hub.
+// Expected side effect: sibling interfaces of the same composite device (e.g. the IR
+// camera) are re-detected too, so the caller must only reach this rung while the camera
+// is expected-enabled; the returned before/after sibling summary evidences that impact.
+bool ReenumerateCameraParent(std::wstring targetId, std::wstring& parentId, std::wstring& siblingStatusReport) {
+    parentId.clear();
+    siblingStatusReport.clear();
+    InterlockedExchange(&g_lastConfigManagerResult, CR_SUCCESS);
+    InterlockedExchange(&g_lastHardwareToggleStage, 60);
+
+    if (targetId.empty() || targetId.find(L"&MI_") == std::wstring::npos) {
+        InterlockedExchange(&g_lastHardwareToggleStage, 64); // not a composite child — refused
+        return false;
+    }
+
+    DEVINST childInst = 0;
+    if (!LocateCameraDevInst(targetId, childInst)) {
+        InterlockedExchange(&g_lastHardwareToggleStage, 61);
+        return false;
+    }
+
+    DEVINST parentInst = 0;
+    CONFIGRET cr = CM_Get_Parent(&parentInst, childInst, 0);
+    InterlockedExchange(&g_lastConfigManagerResult, static_cast<LONG>(cr));
+    if (cr != CR_SUCCESS) {
+        InterlockedExchange(&g_lastHardwareToggleStage, 62);
+        return false;
+    }
+
+    WCHAR parentIdBuf[MAX_DEVICE_ID_LEN] = { 0 };
+    if (CM_Get_Device_IDW(parentInst, parentIdBuf, MAX_DEVICE_ID_LEN, 0) == CR_SUCCESS) {
+        parentId = parentIdBuf;
+    }
+
+    std::wstring before = BuildChildStatusSummary(parentInst);
+
+    cr = CM_Reenumerate_DevNode(parentInst, CM_REENUMERATE_NORMAL);
+    InterlockedExchange(&g_lastConfigManagerResult, static_cast<LONG>(cr));
+    if (cr != CR_SUCCESS) {
+        InterlockedExchange(&g_lastHardwareToggleStage, 63);
+        return false;
+    }
+
+    // Synchronous completion does not guarantee children restarted — bounded settle
+    // window before the after-side sibling snapshot.
+    ::Sleep(1000);
+    std::wstring after = BuildChildStatusSummary(parentInst);
+    siblingStatusReport = L"Before{" + before + L"} After{" + after + L"}";
+
+    InterlockedExchange(&g_lastHardwareToggleStage, 65);
+    return true;
 }
 
 // ====== MyForm member camera operations (originally inline in header) ======

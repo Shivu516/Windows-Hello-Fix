@@ -1,4 +1,4 @@
-; install_universal.nsi — universal x86+x64 installer for Windows Hello Fix v2.1.
+; install_universal.nsi — universal x86+x64 installer for Windows Hello Fix v2.2.
 ; Detects Windows architecture at install time (${RunningX64}), installs EXACTLY ONE
 ; native payload (never both) into the matching Program Files directory with the
 ; matching registry view. All other behavior: see installer/common.nsh (shared logic,
@@ -13,7 +13,7 @@
 !include "common.nsh"
 
 ; --- Project Info ---
-Name "Windows Hello Fix v2.1"
+Name "Windows Hello Fix v2.2"
 OutFile "..\Release\Windows_Hello_Fix_Setup.exe"
 ; InstallDir is set dynamically in .onInit (PROGRAMFILES64 on x64, PROGRAMFILES32 on x86).
 InstallDir "$PROGRAMFILES64\WindowsHelloFix"

@@ -1,5 +1,5 @@
-; install_x86.nsi — standalone x86 installer for Windows Hello Fix v2.1.
-; Payload: Release|Win32 (Windows_Hello_Fix_v2_1_x86.exe). Behavior: see installer/common.nsh
+; install_x86.nsi — standalone x86 installer for Windows Hello Fix v2.2.
+; Payload: Release|Win32 (Windows_Hello_Fix_v2_2_x86.exe). Behavior: see installer/common.nsh
 ; (shared logic, ported from x64/Release/install_script.nsi without behavior change).
 
 !include "MUI2.nsh"
@@ -7,13 +7,13 @@
 !include "x64.nsh"
 
 !define APP_ARCH_X86
-!define APP_EXE_NAME "Windows_Hello_Fix_v2_1_x86.exe"
-!define APP_METAGEN_NAME "Windows_Hello_Fix_v2_1_x86.exe.metagen"
+!define APP_EXE_NAME "Windows_Hello_Fix_v2_2_x86.exe"
+!define APP_METAGEN_NAME "Windows_Hello_Fix_v2_2_x86.exe.metagen"
 !define APP_EXE_SRCDIR "..\Release"
 !include "common.nsh"
 
 ; --- Project Info ---
-Name "Windows Hello Fix v2.1"
+Name "Windows Hello Fix v2.2"
 OutFile "..\Release\Windows_Hello_Fix_Setup_x86.exe"
 InstallDir "$PROGRAMFILES32\WindowsHelloFix"
 RequestExecutionLevel admin

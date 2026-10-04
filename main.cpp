@@ -1,5 +1,6 @@
 #include "MyForm.h"
 #include "src/watchdog/RecoveryLoopFailsafe.h"
+#include "src/watchdog/CameraRecoveryFailsafe.h"
 
 using namespace System;
 using namespace System::Windows::Forms;
@@ -48,6 +49,7 @@ int main(array<String^>^ args)
     }
 
     RecoveryLoopFailsafe^ recoveryLoop = nullptr;
+    CameraRecoveryFailsafe^ cameraRecovery = nullptr;
     if (!isCommandWorker) {
         try {
             recoveryLoop = gcnew RecoveryLoopFailsafe(%form);
@@ -56,12 +58,24 @@ int main(array<String^>^ args)
         } catch (...) {
             recoveryLoop = nullptr;
         }
+
+        // CameraRecoveryFailsafe (Issue #1): camera-stack health watchdog — detects
+        // "PnP enabled but camera unusable" and escalates through the recovery ladder
+        // implemented in src/core. Same lifecycle pattern as RecoveryLoopFailsafe.
+        try {
+            cameraRecovery = gcnew CameraRecoveryFailsafe(%form);
+            form.Load += gcnew EventHandler(cameraRecovery, &CameraRecoveryFailsafe::OnOwnerLoad);
+            form.FormClosing += gcnew FormClosingEventHandler(cameraRecovery, &CameraRecoveryFailsafe::OnOwnerClosing);
+        } catch (...) {
+            cameraRecovery = nullptr;
+        }
     }
 
     Application::Run(%form);
 
-    // Ensure Disarm on exit if loop was armed (also handled by FormClosing).
+    // Ensure Disarm on exit if loops were armed (also handled by FormClosing).
     try { if (recoveryLoop != nullptr) recoveryLoop->Disarm(); } catch (...) {}
+    try { if (cameraRecovery != nullptr) cameraRecovery->Disarm(); } catch (...) {}
 
     return 0;
 }

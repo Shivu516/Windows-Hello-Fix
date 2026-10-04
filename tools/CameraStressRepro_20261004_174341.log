@@ -1,0 +1,10 @@
+﻿[2026-10-04 17:43:41.934] [INFO   ] Target camera (config.txt): USB\VID_04F2&PID_B829&MI_00\6&321DD860&1&0000
+[2026-10-04 17:43:41.946] [INFO   ] Toggle device id: USB\VID_04F2&PID_B829&MI_00\6&321DD860&1&0000
+[2026-10-04 17:43:44.598] [INFO   ] [baseline] PnP=OK/CM_PROB_NONE CameraStack=Healthy HRESULT= (First frame obtained)
+[2026-10-04 17:43:44.603] [INFO   ] --- iteration 1/60 (MidStreamToggle) ---
+[2026-10-04 17:43:45.140] [INFO   ] [stream] LIVE - frames flowing; disabling device mid-stream now
+[2026-10-04 17:43:51.159] [INFO   ] [stream] device re-enabled, PnP settled=True; stopping stream client
+[2026-10-04 17:43:56.291] [INFO   ] [cycle 1 post-toggle] PnP=OK/CM_PROB_NONE CameraStack=Healthy HRESULT= (First frame obtained)
+[2026-10-04 17:43:57.311] [INFO   ] --- iteration 2/60 (MidStreamToggle) ---
+[2026-10-04 17:43:57.695] [INFO   ] [stream] LIVE - frames flowing; disabling device mid-stream now
+[2026-10-04 17:44:03.631] [INFO   ] [stream] device re-enabled, PnP settled=True; stopping stream client

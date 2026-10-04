@@ -1,0 +1,9 @@
+﻿[2026-10-04 15:24:24.900] [INFO   ] Target camera (config.txt): USB\VID_04F2&PID_B829&MI_00\6&321DD860&1&0000
+[2026-10-04 15:24:24.908] [INFO   ] Toggle device id: USB\VID_04F2&PID_B829&MI_00\6&321DD860&1&0000
+[2026-10-04 15:24:26.677] [INFO   ] [baseline] PnP=OK/CM_PROB_NONE CameraStack=Healthy HRESULT= (First frame obtained)
+[2026-10-04 15:24:26.682] [INFO   ] --- iteration 1/1 (MidStreamToggle) ---
+[2026-10-04 15:24:27.033] [INFO   ] [stream] LIVE - frames flowing; disabling device mid-stream now
+[2026-10-04 15:24:32.132] [WARN   ] pnputil /enable-device failed: Microsoft PnP Utility  Failed to enable device:  USB\VID_04F2&PID_B829&MI_00\6&321dd860&1&0000 Device is already enabled.  This command is not supported on this OS product.
+[2026-10-04 15:24:32.514] [INFO   ] [stream] device re-enabled, PnP settled=True; stopping stream client
+[2026-10-04 15:24:37.777] [INFO   ] [cycle 1 post-toggle] PnP=OK/CM_PROB_NONE CameraStack=Healthy HRESULT= (First frame obtained)
+[2026-10-04 15:24:37.783] [INFO   ] Completed. Mode=MidStreamToggle Iterations=1 WedgeSignatures=0

@@ -1,0 +1,3 @@
+﻿[2026-10-04 15:16:47.042] [INFO   ] Target camera (config.txt): USB\VID_04F2&PID_B829&MI_00\6&321DD860&1&0000
+[2026-10-04 15:16:47.052] [INFO   ] Toggle device id: USB\VID_04F2&PID_B829&MI_00\6&321DD860&1&0000
+[2026-10-04 15:16:49.610] [INFO   ] [baseline] PnP=OK/CM_PROB_NONE CameraStack=Failed HRESULT=0x80131501 (Initialization/activation failure)

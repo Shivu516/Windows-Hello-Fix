@@ -33,7 +33,7 @@
     <PlatformToolset>v143</PlatformToolset>
     <CLRSupport>true</CLRSupport>
     <CharacterSet>Unicode</CharacterSet>
-    <TargetName>Windows_Hello_Fix_v2_1_x86</TargetName>
+    <TargetName>Windows_Hello_Fix_v2_2_x86</TargetName>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
@@ -41,7 +41,7 @@
     <PlatformToolset>v143</PlatformToolset>
     <CLRSupport>true</CLRSupport>
     <CharacterSet>Unicode</CharacterSet>
-    <TargetName>Windows_Hello_Fix_v2_1_x86</TargetName>
+    <TargetName>Windows_Hello_Fix_v2_2_x86</TargetName>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
@@ -49,7 +49,7 @@
     <PlatformToolset>v143</PlatformToolset>
     <CLRSupport>true</CLRSupport>
     <CharacterSet>Unicode</CharacterSet>
-    <TargetName>Windows_Hello_Fix_v2_1_x64</TargetName>
+    <TargetName>Windows_Hello_Fix_v2_2_x64</TargetName>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
@@ -57,7 +57,7 @@
     <PlatformToolset>v143</PlatformToolset>
     <CLRSupport>true</CLRSupport>
     <CharacterSet>Unicode</CharacterSet>
-    <TargetName>Windows_Hello_Fix_v2_1_x64</TargetName>
+    <TargetName>Windows_Hello_Fix_v2_2_x64</TargetName>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
   <ImportGroup Label="ExtensionSettings">
@@ -148,12 +148,13 @@
     <ClInclude Include="src\core\MyForm.h" />
     <ClInclude Include="src\watchdog\CameraFailsafe.h" />
     <ClInclude Include="src\watchdog\RecoveryLoopFailsafe.h" />
+    <ClInclude Include="src\watchdog\CameraRecoveryFailsafe.h" />
     <ClInclude Include="ProductionUtilities.h" />
     <ClInclude Include="resource.h" />
     <ClInclude Include="resource1.h" />
   </ItemGroup>
   <ItemGroup>
-    <ResourceCompile Include="Windows_Hello_Fix_v2_1_resources.rc" />
+    <ResourceCompile Include="Windows_Hello_Fix_v2_2_resources.rc" />
   </ItemGroup>
   <ItemGroup>
     <Image Include="x64\Release\WindowsHelloFix.ico" />
@@ -168,6 +169,7 @@
     <ClCompile Include="src\core\MyForm_UI.cpp" />
     <ClCompile Include="src\watchdog\CameraFailsafe.cpp" />
     <ClCompile Include="src\watchdog\RecoveryLoopFailsafe.cpp" />
+    <ClCompile Include="src\watchdog\CameraRecoveryFailsafe.cpp" />
   </ItemGroup>
   <ItemGroup>
     <Xml Include="WindowsHelloFix_TaskSchedule.xml" />

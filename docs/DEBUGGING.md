@@ -8,7 +8,7 @@ All diagnostic output goes to:
 
 and configuration to `%APPDATA%\Windows Hello Fix\config.txt`. Logs are appended, timestamped, and monitor-locked (see `MyForm_Config.cpp`).
 
-Log line format (v2.1 professional format):
+Log line format (v2.2 professional format):
 ```
 [yyyy-MM-dd HH:mm:ss.fff] [LEVEL] [CATEGORY] Event | Op=<id> | Pid=<pid> | <Key=Value ...> | Target=<state> | Verify=PASS|FAIL
 ```

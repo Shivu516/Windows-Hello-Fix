@@ -12,7 +12,7 @@
 
 4. **Globals changed from `static` to `extern`.** In the original monolith the four `g_last*` variables were file-`static` (single TU). To support multiple `.cpp` translation units they are now `extern` in `MyForm.h` and defined once in `MyForm_Camera.cpp`. Behavior is preserved (single authoritative instance), but the change is a structural requirement of the extraction, not a behavioral one. **By design.**
 
-5. **`system("taskkill /F /IM ...")` in the ghost-reset path.** Shells out to kill all instances before `Application::Restart()`. Covers the legacy `Windows_Hello_Fix_v2_0.exe` plus both v2.1 payloads (`_x86`/`_x64`) so an arch switch cannot leave a stale process. Works but is a heavy-handed self-termination; inherited from v2.0. **Not fixed.**
+5. **`system("taskkill /F /IM ...")` in the ghost-reset path.** Shells out to kill all instances before `Application::Restart()`. Covers the legacy `Windows_Hello_Fix_v2_0.exe` plus both v2.2 payloads (`_x86`/`_x64`) so an arch switch cannot leave a stale process. Works but is a heavy-handed self-termination; inherited from v2.0. **Not fixed.**
 
 6. **Build warnings:** `warning C4793` for `TryEnterHardwareToggleCooldown` and `RecordHardwareToggleTime` ("function compiled as native: found an intrinsic not supported in managed code"). These are expected for interlocked/`GetTickCount64` usage inside a `/clr` compile on **both** Release|Win32 and Release|x64 and match the original baseline. The 64-bit tick uses the `_InterlockedCompareExchange64` compiler intrinsic (single code path on x86/x64) because the SDK excludes the `Interlocked*64` API aliases from managed x86 code. **No change.**
 

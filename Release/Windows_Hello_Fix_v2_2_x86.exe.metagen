@@ -1,5 +1,5 @@
 ImageRuntimeVersion: v4.0.30319
-Assembly Windows_Hello_Fix_v2_1_x86, Version=0.0.*, Culture=Invariant Language (Invariant Country): 
+Assembly Windows_Hello_Fix_v2_2_x86, Version=0.0.*, Culture=Invariant Language (Invariant Country): 
 	hash=SHA1, flags=PublicKey
 Assembly mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089: 
 	hash=None, flags=None
@@ -35,6 +35,16 @@ Struct Windows_Hello_Fix_v2_0.MyForm+DiagLevel: AutoLayout, AnsiClass, Class, Ne
     DiagLevel Warn = 2 : Public, Static, Literal, HasDefault
     DiagLevel Error = 3 : Public, Static, Literal, HasDefault
 Class Windows_Hello_Fix_v2_0.RecoveryLoopFailsafe: AutoLayout, AnsiClass, Class, Public, BeforeFieldInit
+    Void .ctor(Windows_Hello_Fix_v2_0.MyForm): PrivateScope, Public, HideBySig, SpecialName, RTSpecialName
+  Interfaces:
+    System.IDisposable
+  Methods:
+    Arm(): PrivateScope, Public, HideBySig
+    Disarm(): PrivateScope, Public, HideBySig
+    OnOwnerLoad(Object, EventArgs): PrivateScope, Public, HideBySig
+    OnOwnerClosing(Object, FormClosingEventArgs): PrivateScope, Public, HideBySig
+    Dispose(): PrivateScope, Public, Final, Virtual, HideBySig
+Class Windows_Hello_Fix_v2_0.CameraRecoveryFailsafe: AutoLayout, AnsiClass, Class, Public, BeforeFieldInit
     Void .ctor(Windows_Hello_Fix_v2_0.MyForm): PrivateScope, Public, HideBySig, SpecialName, RTSpecialName
   Interfaces:
     System.IDisposable

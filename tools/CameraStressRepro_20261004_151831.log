@@ -1,0 +1,3 @@
+﻿[2026-10-04 15:18:31.798] [INFO   ] Target camera (config.txt): USB\VID_04F2&PID_B829&MI_00\6&321DD860&1&0000
+[2026-10-04 15:18:31.806] [INFO   ] Toggle device id: USB\VID_04F2&PID_B829&MI_00\6&321DD860&1&0000
+[2026-10-04 15:18:33.352] [INFO   ] [baseline] PnP=OK/CM_PROB_NONE CameraStack=Failed HRESULT= (No color frame source on the initialized capture)

@@ -3,11 +3,11 @@
   <img width="210" src="x64/Release/WindowsHelloFix.ico" alt="HelloFix Logo">
 </p>
 
-# Windows Hello Fix v2.1 📸
+# Windows Hello Fix v2.2 📸
 
 **Windows Hello keeps picking the wrong camera. This makes sure it doesn't.**
 
-[![Version: v2.1](https://img.shields.io/badge/version-v2.1-blue)](https://github.com/Shivu516/Windows-Hello-Fix/releases)
+[![Version: v2.2](https://img.shields.io/badge/version-v2.2-blue)](https://github.com/Shivu516/Windows-Hello-Fix/releases)
 [![Platform: Windows 10/11 x86+x64](https://img.shields.io/badge/platform-Windows_10%2F11_x86%2Bx64-lightgrey)](https://github.com/Shivu516/Windows-Hello-Fix/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
@@ -22,16 +22,16 @@ Many Hello-capable laptops have two front sensors: a normal RGB (color) camera a
 
 The fix is almost insultingly simple: disable the RGB camera just before the system locks. With its favorite distraction gone, Windows Hello falls back to the IR sensor and unlocks near-instantly, even in pitch darkness. This app just automates that, in both directions — no more camera roulette at the lock screen.
 
-## 🛠️ What Changed in v2.1
+## 🛠️ What Changed in v2.2
 
-v2.1 is not just a feature update — the codebase itself was rebuilt into a more maintainable modular structure while preserving the behavior that made v2.0 reliable. v2.0 was the original native C++ overhaul; v2.1 continues that implementation, reorganized.
+v2.2 is not just a feature update — the codebase itself was rebuilt into a more maintainable modular structure while preserving the behavior that made v2.0 reliable. v2.0 was the original native C++ overhaul; v2.2 continues that implementation, reorganized.
 
 The first restructuring attempt was… ambitious. It also broke things. So it was abandoned in favor of a simpler extraction that keeps the proven v2.0 behavior intact — Windows was already providing enough debugging opportunities on its own.
 
-Concretely, v2.1 brings:
+Concretely, v2.2 brings:
 
 - **Modular architecture** — the old monolith is now `src/core/` (camera, config, lifecycle, events, UI) plus `src/watchdog/` (recovery), with one clear owner per job.
-- **x86 + x64 from one shared tree** — the same source builds both architectures (`Windows_Hello_Fix_v2_1_x86.exe` and `Windows_Hello_Fix_v2_1_x64.exe`); no forked codebases, no `src/x86` versus `src/x64` split.
+- **x86 + x64 from one shared tree** — the same source builds both architectures (`Windows_Hello_Fix_v2_2_x86.exe` and `Windows_Hello_Fix_v2_2_x64.exe`); no forked codebases, no `src/x86` versus `src/x64` split.
 - **Universal + standalone installers** — one `Windows_Hello_Fix_Setup.exe` that detects your architecture and installs the matching payload, plus pinned `Windows_Hello_Fix_Setup_x86.exe` / `Windows_Hello_Fix_Setup_x64.exe` for anyone who wants a specific build.
 - **A real recovery system** — unexpected camera disables are detected and repaired automatically instead of lingering until the next lock cycle.
 - **Startup hardening** — the camera is restored during launch, backed by a sign-in helper task that survives flaky boot-time triggers.
@@ -75,7 +75,7 @@ The core owns every state decision and is the only code that touches camera hard
 ### Universal installer (recommended for most users)
 
 1. Download `Windows_Hello_Fix_Setup.exe` from the [**Releases**](https://github.com/Shivu516/Windows-Hello-Fix/releases) page.
-2. Run it and follow the wizard (license → components → install folder). It detects whether Windows is x86 or x64, installs exactly one matching payload (`Windows_Hello_Fix_v2_1_x86.exe` or `Windows_Hello_Fix_v2_1_x64.exe`), registers four scheduled tasks (background launch at logon, lock helper, sign-in recovery helper, daily log cleanup), performs a warm-up camera restore, and offers to launch the app.
+2. Run it and follow the wizard (license → components → install folder). It detects whether Windows is x86 or x64, installs exactly one matching payload (`Windows_Hello_Fix_v2_2_x86.exe` or `Windows_Hello_Fix_v2_2_x64.exe`), registers four scheduled tasks (background launch at logon, lock helper, sign-in recovery helper, daily log cleanup), performs a warm-up camera restore, and offers to launch the app.
 3. On first launch from the Start Menu, select your **RGB camera** from the drop-down and click **Start Monitoring Service**. That's the one-time setup — automation runs from then on.
 
 > ⚠️ **Pick the RGB camera, not the IR sensor.** Disabling the wrong device will break Hello entirely — this is the one step worth doing carefully.
@@ -86,8 +86,8 @@ Prefer a fixed build instead of auto-detection? Grab the one that matches your s
 
 | Installer | Payload | Installs to |
 |---|---|---|
-| `Windows_Hello_Fix_Setup_x64.exe` | `Windows_Hello_Fix_v2_1_x64.exe` | `Program Files\WindowsHelloFix` |
-| `Windows_Hello_Fix_Setup_x86.exe` | `Windows_Hello_Fix_v2_1_x86.exe` | `Program Files (x86)\WindowsHelloFix` |
+| `Windows_Hello_Fix_Setup_x64.exe` | `Windows_Hello_Fix_v2_2_x64.exe` | `Program Files\WindowsHelloFix` |
+| `Windows_Hello_Fix_Setup_x86.exe` | `Windows_Hello_Fix_v2_2_x86.exe` | `Program Files (x86)\WindowsHelloFix` |
 
 Behavior — tasks, shortcuts, warm-up restore, uninstall — is identical to the universal installer. Native ARM64 builds are not shipped yet (see Roadmap); on ARM PCs the x64 build may run under emulation, which is not native support.
 
@@ -97,7 +97,7 @@ Behavior — tasks, shortcuts, warm-up restore, uninstall — is identical to th
 winget install hellofix
 ```
 
-This resolves to the community `Shivu516.WindowsHelloFix` package, which at last check serves **v2.0.0** — use the Releases installer above for v2.1. After a WinGet install, launch the app from the Start Menu and complete the same one-time camera binding.
+This resolves to the community `Shivu516.WindowsHelloFix` package, which at last check serves **v2.0.0** — use the Releases installer above for v2.2. After a WinGet install, launch the app from the Start Menu and complete the same one-time camera binding.
 
 ## 🧹 Uninstallation
 
@@ -138,7 +138,7 @@ Two watchdogs cover different time scales: a fast verifier that checks seconds a
 
 ### 🖥️ A note on Issue #2 — "HelloFix not Opening"
 
-The background instance runs with a fully transparent window by design. Previously, waking it (by launching the app again) could show the window while leaving it transparent — the app was there, just invisible. v2.1 restores visibility whenever the window is summoned, and background/scheduled launches now exit silently instead of disturbing the running instance. Reported in [Issue #2](https://github.com/Shivu516/Windows-Hello-Fix/issues/2).
+The background instance runs with a fully transparent window by design. Previously, waking it (by launching the app again) could show the window while leaving it transparent — the app was there, just invisible. v2.2 restores visibility whenever the window is summoned, and background/scheduled launches now exit silently instead of disturbing the running instance. Reported in [Issue #2](https://github.com/Shivu516/Windows-Hello-Fix/issues/2).
 
 <!-- SHOWCASE: GUI -->
 
@@ -190,7 +190,7 @@ Each line carries a severity (`DEBUG`/`INFO`/`WARN`/`ERROR`), a category (`START
 
 ## ⚠️ Known Issues
 
-- **Mid-session Hello prompts are out of scope.** The app acts on sign-in session and power transitions. Hello invocations that happen while the system is already running — browser passkeys, in-app Hello logins — are not intercepted, and a camera-switch failure there (of the `0xA00F4241` / `CameraSwitchFailed` variety) is not something v2.1 currently repairs. The failsafes only fix unexpected-disabled states they poll for; they do not watch the switch path itself. Improving this is on the roadmap, not in the release.
+- **Mid-session Hello prompts are out of scope.** The app acts on sign-in session and power transitions. Hello invocations that happen while the system is already running — browser passkeys, in-app Hello logins — are not intercepted, and a camera-switch failure there (of the `0xA00F4241` / `CameraSwitchFailed` variety) is not something v2.2 currently repairs. The failsafes only fix unexpected-disabled states they poll for; they do not watch the switch path itself. Improving this is on the roadmap, not in the release.
 - **Lock/unlock scope.** Related to the above: automation follows session and power events, full stop.
 - **Recovery takes seconds, not milliseconds.** Detection rides on polls (30 s fast loop, 90 s backstop), so an unexpected disable can linger briefly before repair.
 - **Closing the window hides it.** The app keeps running in the background; to quit fully, stop the monitoring service or end the process in Task Manager.
@@ -203,7 +203,7 @@ Planned, not promised — and definitely not already shipped:
 
 - **Runtime camera-switch recovery** — extend the safety net toward failures like `0xA00F4241` when Hello fires mid-session. Current status: the failsafe infrastructure (poll → confirm → enable-only recover → verify) exists and works for unexpected-disabled states; watching the switch path itself is future work.
 - **In-app updater** — a GUI-integrated client that checks for new HelloFix releases and notifies you, so upgrading stops meaning manual downloads. No updater code exists in the repo today.
-- **Native ARM64 support** — the source is kept portable and the installer is already structured for a third payload, but C++/CLI plus .NET Framework 4.7.2 blocks a native ARM64 build for now, so v2.1 ships x86+x64. When the toolchain story changes, ARM64 slots in additively.
+- **Native ARM64 support** — the source is kept portable and the installer is already structured for a third payload, but C++/CLI plus .NET Framework 4.7.2 blocks a native ARM64 build for now, so v2.2 ships x86+x64. When the toolchain story changes, ARM64 slots in additively.
 - **Event-driven detection** — the long-term watchdog is timer-only today; reacting to PnP notifications instead of polling is a possible future tightening.
 
 ## 🖥️ Compatibility
