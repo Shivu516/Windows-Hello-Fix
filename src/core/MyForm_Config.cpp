@@ -188,8 +188,19 @@ namespace Windows_Hello_Fix_v2_0 {
         String^ savedDeviceInstance = L"";
         LoadConfigState(savedDeviceInstance);
         if (!String::IsNullOrEmpty(savedDeviceInstance)) {
-            targetInstanceId = msclr::interop::marshal_as<std::wstring>(savedDeviceInstance);
-            return true;
+            std::wstring configuredId = msclr::interop::marshal_as<std::wstring>(savedDeviceInstance);
+            // Presence-gate the saved identity: after a device-instance removal/re-cration
+            // the old devnode can survive as a NON-PRESENT phantom (PnP Status=Unknown,
+            // e.g. "...&1&0000" next to the live "...&2&0000"). Trusting a phantom here made
+            // the Lock/Unlock task workers disable a ghost while the real camera stayed
+            // enabled. A present-but-disabled device still passes this check (disabled
+            // devnodes remain configured), so only true phantoms fall through to the
+            // live-scan fallback below.
+            DEVINST configuredDevInst = 0;
+            if (CM_Locate_DevNodeW(&configuredDevInst, &configuredId[0], CM_LOCATE_DEVNODE_NORMAL) == CR_SUCCESS) {
+                targetInstanceId = configuredId;
+                return true;
+            }
         }
 
         if (!preferCurrentSelection && pSelectedInstanceId && !pSelectedInstanceId->empty()) {

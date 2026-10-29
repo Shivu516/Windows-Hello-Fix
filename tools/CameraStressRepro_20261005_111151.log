@@ -1,0 +1,29 @@
+﻿[2026-10-05 11:11:52.139] [INFO   ] Target camera (MI_00 heuristic): \\?\USB#VID_04F2&PID_B829&MI_00#6&321dd860&2&0000#{e5323777-f976-4f5b-9b55-b94699c46e44}\GLOBAL
+[2026-10-05 11:11:52.153] [INFO   ] Toggle device id: \\?\USB#VID_04F2&PID_B829&MI_00#6&321dd860&2&0000#{e5323777-f976-4f5b-9b55-b94699c46e44}\GLOBAL
+[2026-10-05 11:11:54.607] [INFO   ] [baseline] PnP=/ CameraStack=Healthy HRESULT= (First frame obtained)
+[2026-10-05 11:11:54.615] [INFO   ] --- iteration 1/60 (MidStreamToggle) ---
+[2026-10-05 11:11:55.058] [INFO   ] [stream] LIVE - frames flowing; disabling device mid-stream now
+[2026-10-05 11:12:25.382] [INFO   ] [stream] device re-enabled, PnP settled=False; stopping stream client
+[2026-10-05 11:12:30.120] [INFO   ] [cycle 1 post-toggle] PnP=/ CameraStack=NoCaptureDevice HRESULT=0xC00DABE0 (MF reports no capture device available)
+[2026-10-05 11:12:31.140] [INFO   ] --- iteration 2/60 (MidStreamToggle) ---
+[2026-10-05 11:12:31.147] [WARN   ] [stream] stream setup/teardown issue: 0xC00DABE0 No capture devices are available.
+No capture devices are available.
+[2026-10-05 11:12:35.737] [INFO   ] [cycle 2 post-toggle] PnP=/ CameraStack=NoCaptureDevice HRESULT=0xC00DABE0 (MF reports no capture device available)
+[2026-10-05 11:12:36.761] [INFO   ] --- iteration 3/60 (MidStreamToggle) ---
+[2026-10-05 11:12:36.797] [WARN   ] [stream] stream setup/teardown issue: 0xC00DABE0 No capture devices are available.
+No capture devices are available.
+[2026-10-05 11:12:41.256] [INFO   ] [cycle 3 post-toggle] PnP=/ CameraStack=NoCaptureDevice HRESULT=0xC00DABE0 (MF reports no capture device available)
+[2026-10-05 11:12:42.275] [INFO   ] --- iteration 4/60 (MidStreamToggle) ---
+[2026-10-05 11:12:42.284] [WARN   ] [stream] stream setup/teardown issue: 0xC00DABE0 No capture devices are available.
+No capture devices are available.
+[2026-10-05 11:12:46.705] [INFO   ] [cycle 4 post-toggle] PnP=/ CameraStack=NoCaptureDevice HRESULT=0xC00DABE0 (MF reports no capture device available)
+[2026-10-05 11:12:47.717] [INFO   ] --- iteration 5/60 (MidStreamToggle) ---
+[2026-10-05 11:12:47.723] [WARN   ] [stream] stream setup/teardown issue: 0xC00DABE0 No capture devices are available.
+No capture devices are available.
+[2026-10-05 11:12:52.142] [INFO   ] [cycle 5 post-toggle] PnP=/ CameraStack=NoCaptureDevice HRESULT=0xC00DABE0 (MF reports no capture device available)
+[2026-10-05 11:12:53.149] [INFO   ] --- iteration 6/60 (MidStreamToggle) ---
+[2026-10-05 11:12:53.156] [WARN   ] [stream] stream setup/teardown issue: 0xC00DABE0 No capture devices are available.
+No capture devices are available.
+[2026-10-05 11:12:58.589] [INFO   ] [cycle 6 post-toggle] PnP=/ CameraStack=Healthy HRESULT= (First frame obtained)
+[2026-10-05 11:12:59.602] [INFO   ] --- iteration 7/60 (MidStreamToggle) ---
+[2026-10-05 11:13:00.135] [INFO   ] [stream] LIVE - frames flowing; disabling device mid-stream now

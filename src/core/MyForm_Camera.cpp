@@ -747,6 +747,19 @@ static void CollectChildInstanceIds(DEVINST parentInst, std::vector<std::wstring
     }
 }
 
+// Stable identity prefix: everything up to and including the final '\'. If the previous
+// generation's devnodes linger (deferred removal with open handles), re-enumeration
+// recreates the interfaces with an incremented instance suffix ("...&1&0000" ->
+// "...&2&0000"); the physical camera's stable identity is the prefix, so recovery
+// verification matches by prefix and the actual (possibly re-suffixed) IDs are reported.
+static std::wstring StableDevicePrefix(const std::wstring& instanceId) {
+    size_t lastSlash = instanceId.find_last_of(L'\\');
+    if (lastSlash == std::wstring::npos) {
+        return instanceId;
+    }
+    return instanceId.substr(0, lastSlash + 1);
+}
+
 bool RemoveAndReenumerateCameraHardware(std::wstring targetId, int deepScope, std::wstring& report) {
     report.clear();
     InterlockedExchange(&g_lastSetupApiError, ERROR_SUCCESS);
@@ -916,24 +929,60 @@ bool RemoveAndReenumerateCameraHardware(std::wstring targetId, int deepScope, st
         return false;
     }
 
-    // --- WAIT RETURN + STARTED (every expected sibling, same instance IDs) ---
+    // --- WAIT RETURN + STARTED (every expected sibling, matched by stable prefix) ---
+    // The recreated interfaces may carry an incremented instance suffix if the previous
+    // generation's devnodes lingered; the prefix identifies the same physical interface.
     waitStart = GetTickCount64();
     bool allBack = false;
+    std::wstring returnedIds;
     while (GetTickCount64() - waitStart < 25000) {
-        size_t ready = 0;
-        for (size_t s = 0; s < expectedSiblings.size(); s++) {
-            DEVINST probe = 0;
-            ULONG status = 0;
-            ULONG problem = 0;
-            if (CM_Locate_DevNodeW(&probe, &expectedSiblings[s][0], CM_LOCATE_DEVNODE_NORMAL) == CR_SUCCESS &&
-                CM_Get_DevNode_Status(&status, &problem, probe, 0) == CR_SUCCESS &&
-                (status & DN_STARTED) != 0 && (status & DN_HAS_PROBLEM) == 0) {
-                ready++;
+        DEVINST compositeNow = 0;
+        bool haveCompositeNow = false;
+        if (deepScope == 1) {
+            // The old composite DEVINST died with the removal — re-locate the new one
+            // among the hub's children by the composite's stable prefix.
+            std::vector<std::wstring> hubChildren;
+            CollectChildInstanceIds(ancestorInst, hubChildren);
+            std::wstring compositePrefix = StableDevicePrefix(removeId);
+            for (size_t c = 0; c < hubChildren.size(); c++) {
+                if (hubChildren[c].rfind(compositePrefix, 0) == 0) {
+                    if (CM_Locate_DevNodeW(&compositeNow, &hubChildren[c][0], CM_LOCATE_DEVNODE_NORMAL) == CR_SUCCESS) {
+                        haveCompositeNow = true;
+                    }
+                    break;
+                }
             }
+        } else {
+            compositeNow = ancestorInst;
+            haveCompositeNow = true;
         }
-        if (ready == expectedSiblings.size()) {
-            allBack = true;
-            break;
+
+        if (haveCompositeNow) {
+            std::vector<std::wstring> nowChildren;
+            CollectChildInstanceIds(compositeNow, nowChildren);
+            size_t ready = 0;
+            returnedIds.clear();
+            for (size_t s = 0; s < expectedSiblings.size(); s++) {
+                std::wstring siblingPrefix = StableDevicePrefix(expectedSiblings[s]);
+                for (size_t c = 0; c < nowChildren.size(); c++) {
+                    if (nowChildren[c].rfind(siblingPrefix, 0) == 0) {
+                        DEVINST probe = 0;
+                        ULONG status = 0;
+                        ULONG problem = 0;
+                        if (CM_Locate_DevNodeW(&probe, &nowChildren[c][0], CM_LOCATE_DEVNODE_NORMAL) == CR_SUCCESS &&
+                            CM_Get_DevNode_Status(&status, &problem, probe, 0) == CR_SUCCESS &&
+                            (status & DN_STARTED) != 0 && (status & DN_HAS_PROBLEM) == 0) {
+                            ready++;
+                            returnedIds += (returnedIds.empty() ? L"" : L"; ") + nowChildren[c];
+                        }
+                        break;
+                    }
+                }
+            }
+            if (ready == expectedSiblings.size() && !expectedSiblings.empty()) {
+                allBack = true;
+                break;
+            }
         }
         ::Sleep(250);
     }
@@ -942,7 +991,15 @@ bool RemoveAndReenumerateCameraHardware(std::wstring targetId, int deepScope, st
     DEVINST compositeAfter = 0;
     bool haveCompositeAfter = false;
     if (deepScope == 1) {
-        haveCompositeAfter = (CM_Locate_DevNodeW(&compositeAfter, &removeId[0], CM_LOCATE_DEVNODE_NORMAL) == CR_SUCCESS);
+        std::vector<std::wstring> hubChildren;
+        CollectChildInstanceIds(ancestorInst, hubChildren);
+        std::wstring compositePrefix = StableDevicePrefix(removeId);
+        for (size_t c = 0; c < hubChildren.size(); c++) {
+            if (hubChildren[c].rfind(compositePrefix, 0) == 0) {
+                haveCompositeAfter = (CM_Locate_DevNodeW(&compositeAfter, &hubChildren[c][0], CM_LOCATE_DEVNODE_NORMAL) == CR_SUCCESS);
+                break;
+            }
+        }
     } else {
         compositeAfter = ancestorInst;
         haveCompositeAfter = true;
@@ -959,6 +1016,7 @@ bool RemoveAndReenumerateCameraHardware(std::wstring targetId, int deepScope, st
              L" | Ancestor=" + ancestorId +
              L" | GoneMs=" + goneBuf +
              L" | ReturnMs=" + returnBuf +
+             (returnedIds.empty() ? L"" : (L" | Returned=" + returnedIds)) +
              L" | Before{" + beforeSummary + L"} After{" + afterSummary + L"}";
 
     if (!allBack) {
